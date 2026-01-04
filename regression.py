@@ -1,7 +1,5 @@
 import numpy as np
 import matplotlib.pyplot as plt
-import tkinter as tk
-from tkinter import messagebox
 
 def derivativesByFor(x, y, w, b): #Metodo super ineficiente pero util para el entimiento del algoritmo de las derivadas
     der_B = 0
