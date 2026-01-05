@@ -76,7 +76,6 @@ def dataGeneratorWithAFormula(num):
     sqrtMeters = np.random.uniform(100, 500, size=num) 
     youngPopulationIndex = np.random.uniform(0.20, 0.45, size=num) #Aqui elegimos un valor random entre 0.20 y 0.45 o sea 20% de la poblacion es joven o 40%
     ruido = np.random.normal(0, 20_000, size=num)
-
     ganancia = 0.001 * population + 0.8 * gdp + 100 * sqrtMeters - 2.3 * youngPopulationIndex + ruido #Esta es la formula que buscara aproximar el modelo.
     x = np.column_stack([population, gdp, sqrtMeters, youngPopulationIndex])
     y = ganancia
@@ -103,12 +102,19 @@ dataNormX, miuX, sigmaX = normX(dataGenX)
 w, b, w_Hist, b_Hist = gradientDescent(dataNormX, dataGenY, w=np.zeros(4), b=0, e=0.001, alpha=0.1, maxIter=10000000)
 cost_Hist = cost(w_Hist, b_Hist, dataNormX, dataGenY)
 
-def f_wb(miu, sigma, w, b, predic, idxfeature):
+def f_wbOnOne(miu, sigma, w, b, predic, idxfeature):
     valuesofX = miu.copy()
     valuesofX[idxfeature] = predic
     valuesofX = (valuesofX - miu)/sigma
     f = np.dot(valuesofX, w) + b
     return f
+
+def f_wbOnAll(miu, sigma, w, b, predic):
+    valuesofX = predic
+    valuesofX = (valuesofX - miu)/sigma
+    f = np.dot(valuesofX, w) + b
+    return f
+
 
 def chartOfPredictionsBasedOnGdp(miu, sigma, w, b):
     # Valores del feature 1 desde el minimo hasta al maximo espaciados en 100 (Esto es solo para graficar pues ocupa varios puntos)
@@ -144,5 +150,8 @@ chartOfCostVsIteration(cost_Hist)
 chartOfPredictionsBasedOnGdp(miuX, sigmaX, w, b)
 
 gdpForPrediction = 100000
-PredictionBasedOnGdp = f_wb(miuX, sigmaX, w, b, gdpForPrediction, idxfeature=1) 
-print(PredictionBasedOnGdp)
+PredictionBasedOnGdp = f_wbOnOne(miuX, sigmaX, w, b, gdpForPrediction, idxfeature=1) 
+xForPred = np.array([30000, 100000, 300, 0.30])
+PredictionBasedOnAll = f_wbOnAll(miuX, sigmaX, w, b, xForPred) 
+print(f"Prediction Based on the GDP ({gdpForPrediction}): {PredictionBasedOnGdp}")
+print(f"Prediction Based on all features ({xForPred}): {PredictionBasedOnAll}")
