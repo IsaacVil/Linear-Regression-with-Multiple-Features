@@ -151,7 +151,7 @@ chartOfPredictionsBasedOnGdp(miuX, sigmaX, w, b)
 
 gdpForPrediction = 100000
 PredictionBasedOnGdp = f_wbOnOne(miuX, sigmaX, w, b, gdpForPrediction, idxfeature=1) 
-xForPred = np.array([30000, 100000, 300, 0.30])
+xForPred = np.array([10000, 100000, 100, 0.30])
 PredictionBasedOnAll = f_wbOnAll(miuX, sigmaX, w, b, xForPred) 
 print(f"Prediction Based on the GDP ({gdpForPrediction}): {PredictionBasedOnGdp}")
 print(f"Prediction Based on all features ({xForPred}): {PredictionBasedOnAll}")

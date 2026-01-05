@@ -54,13 +54,13 @@ Then, the **true profit** (target $y$) is computed using a linear formula plus G
 
 $$
 	ext{profit} = 0.001 \cdot \text{population}
-\;+
+\;+\
 0.8 \cdot \text{gdp}
-\;+
+\;+\
 100 \cdot \text{sqrtMeters}
-\;-
+\;-\
 2.3 \cdot \text{youngPopulationIndex}
-\;+
+\;+\
 \varepsilon
 $$
 
@@ -255,11 +255,16 @@ This shows **how estimated profit changes with GDP**, while population, square m
 
 ---
 
-## 9. Prediction Function for a Specific GDP
+## 9. Prediction Functions
 
-The function `f_wb(miu, sigma, w, b, predic, idxfeature)` allows you to make **manual predictions** by changing only one feature and keeping the others at their mean.
+There are two helper functions to make **manual predictions** with the trained model:
 
-The procedure is:
+- `f_wbOnOne(miu, sigma, w, b, predic, idxfeature)`: changes **only one feature**, keeping the others at their mean.
+- `f_wbOnAll(miu, sigma, w, b, predic)`: allows you to provide a **full feature vector**, setting all features explicitly.
+
+### 9.1. Changing a Single Feature (e.g., GDP)
+
+The function `f_wbOnOne(miu, sigma, w, b, predic, idxfeature)` follows this procedure:
 
 1. Start from a vector of mean feature values `miu`.
 2. Replace the position `idxfeature` with the feature value you want to test (`predic`).
@@ -275,12 +280,33 @@ where $\mathbf{z}$ is the normalized feature vector.
 In the script example:
 
 - `gdpForPrediction = 100000`.
-- `f_wb(miuX, sigmaX, w, b, gdpForPrediction, idxfeature=1)` is used to predict the profit varying only `GDP`.
+- `f_wbOnOne(miuX, sigmaX, w, b, gdpForPrediction, idxfeature=1)` is used to predict the profit varying only `GDP`.
 
 The output is the **estimated profit** for a restaurant with:
 
 - Population, square meters and young population index at their average value.
 - City GDP = 100,000.
+
+### 9.2. Setting All Features Explicitly
+
+The function `f_wbOnAll(miu, sigma, w, b, predic)` lets you specify **all four features** directly. The steps are:
+
+1. Take `predic` as the feature vector $(x_1, x_2, x_3, x_4)$.
+2. Normalize it using the same `miu` and `sigma` from training.
+3. Compute:
+
+$$
+f = \mathbf{w}^T \mathbf{z} + b
+$$
+
+In the script example:
+
+- `xForPred = np.array([10000, 100000, 100, 0.30])`.
+- `f_wbOnAll(miuX, sigmaX, w, b, xForPred)` is used to predict the profit based on **all features at once**:
+	- Population = 10,000
+	- GDP = 100,000
+	- Square meters = 100
+	- Young population index = 0.30
 
 ---
 
@@ -297,7 +323,8 @@ Key functions:
 - `gradientDescent(x, y, w, b, e, alpha, maxIter)`: trains the model using gradient descent.
 - `cost(w_Hist, b_Hist, x, y)`: computes cost across iterations.
 - `chartOfCostVsIteration(cost_Hist)`: plots cost vs. iteration.
-- `f_wb(miu, sigma, w, b, predic, idxfeature)`: prediction function where you change one feature.
+- `f_wbOnOne(miu, sigma, w, b, predic, idxfeature)`: prediction function where you change one feature.
+- `f_wbOnAll(miu, sigma, w, b, predic)`: prediction function where you specify all features.
 - `chartOfPredictionsBasedOnGdp(miu, sigma, w, b)`: plots profit vs. GDP.
 
 At the end of the file, a typical workflow is executed:
@@ -307,7 +334,9 @@ At the end of the file, a typical workflow is executed:
 3. Model training with gradient descent to obtain `w, b, w_Hist, b_Hist`.
 4. Computation of the cost history `cost_Hist`.
 5. Plotting **cost vs. iteration** and **profit vs. GDP**.
-6. Making a **single prediction** for a fixed GDP (e.g. 100,000).
+6. Making two predictions:
+	- A **single-feature prediction** varying only GDP (e.g. 100,000).
+	- A **full-feature prediction** using a specific vector of all four features.
 
 ---
 
