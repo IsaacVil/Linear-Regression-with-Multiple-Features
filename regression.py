@@ -1,5 +1,6 @@
 import numpy as np
 import matplotlib.pyplot as plt
+from sklearn.datasets import fetch_openml
 
 def derivativesByFor(x, y, w, b): #Metodo super ineficiente pero util para el entimiento del algoritmo de las derivadas
     der_B = 0
@@ -54,7 +55,7 @@ def gradientDescent(x, y, w, b, e, alpha, maxIter): #e = epsilon siendo el valor
         b = b - alpha * der_B
         w_Hist = np.vstack([w_Hist, w]) #vamos stackeando los vectores en una matriz
         b_Hist = np.append(b_Hist, b)
-        if ((np.all(np.abs(w_Copy - w) < e)) and (abs(b_Copy - b) < e)):
+        if ((np.linalg.norm(der_W) < e) and (abs(b_Copy - b) < e)):
             break
         i = i + 1
         
@@ -68,7 +69,7 @@ def normX(x):
     z = (x - miu) / sigma
     return z, miu, sigma
 
-def dataGeneratorWithAFormula(num):
+def dataRestaurantGeneratorWithAFormula(num):
     ganancia = np.zeros(num)
 
     population = np.random.uniform(50000,500000, size=num) 
@@ -97,11 +98,6 @@ def chartOfCostVsIteration(cost_Hist):
     ax.set_title("Cost vs Iteration")
     plt.show()
 
-dataGenX, dataGenY = dataGeneratorWithAFormula(1000)
-dataNormX, miuX, sigmaX = normX(dataGenX)
-w, b, w_Hist, b_Hist = gradientDescent(dataNormX, dataGenY, w=np.zeros(4), b=0, e=0.001, alpha=0.1, maxIter=10000000)
-cost_Hist = cost(w_Hist, b_Hist, dataNormX, dataGenY)
-
 def f_wbOnOne(miu, sigma, w, b, predic, idxfeature):
     valuesofX = miu.copy()
     valuesofX[idxfeature] = predic
@@ -116,42 +112,49 @@ def f_wbOnAll(miu, sigma, w, b, predic):
     return f
 
 
-def chartOfPredictionsBasedOnGdp(miu, sigma, w, b):
+def chartOfPredictionsBasedOnFeature(X, Y, miu, sigma, w_chart, b_chart, idx, featureName):
     # Valores del feature 1 desde el minimo hasta al maximo espaciados en 100 (Esto es solo para graficar pues ocupa varios puntos)
     x_feat = np.linspace(
-        dataGenX[:, 1].min(),
-        dataGenX[:, 1].max(),
+        X[:, idx].min(),
+        X[:, idx].max(),
         100
     )
 
     #Esto es para llenar todos los valores de los puntos (w1*miu1 + w2*miu2 + w3*miu3 + w4*miu4) + b haciendo todo estatico
     X_plot = np.tile(miu, (100, 1))
-    X_plot[:, 1] = x_feat #aqui se cambia para que sea w1*miu + w2*x2 siendo x2 la unica variable para la grafica
+    X_plot[:, idx] = x_feat #aqui se cambia para que sea w1*miu + w2*x2 siendo x2 la unica variable para la grafica
 
     # Normalizamos igual que el entrenamiento
     X_plot_norm = (X_plot - miu) / sigma #normalizamos los datos debido a que las ws estan normalizadas tambien
 
     
-    y_pred = X_plot_norm @ w + b #se hace el modelo de prediccion (puntos del modelo para graficar)
+    y_pred = X_plot_norm @ w_chart + b_chart #se hace el modelo de prediccion (puntos del modelo para graficar)
 
     fig, ax = plt.subplots(figsize=(8,6))
 
-    ax.scatter(dataGenX[:, 1], dataGenY, alpha=0.4, label="Real Data") #Esto es de poner los puntos de los datos de X en el feature 1 y sus ganacias
+    ax.scatter(X[:, idx], Y, alpha=0.4, label="Real Data") #Esto es de poner los puntos de los datos de X en el feature 1 y sus ganacias
     ax.plot(x_feat, y_pred, color="red", linewidth=2, label="Model") #Esto ya es para graficar el modelo
     
-    ax.set_xlabel("Gross Domestic Product (GDP)")
+    ax.set_xlabel(f"{featureName}")
     ax.set_ylabel("Revenue $")
-    ax.set_title("Revenue vs Gross Domestic Product (GDP)")
+    ax.set_title(f"Revenue vs {featureName}")
     ax.legend()
 
     plt.show()
 
-chartOfCostVsIteration(cost_Hist)
-chartOfPredictionsBasedOnGdp(miuX, sigmaX, w, b)
+if __name__ == "__main__":
+    dataGenX, dataGenY = dataRestaurantGeneratorWithAFormula(1000)
+    dataNormX, miuX, sigmaX = normX(dataGenX)
+    w, b, w_Hist, b_Hist = gradientDescent(dataNormX, dataGenY, w=np.zeros(4), b=0, e=0.001, alpha=0.1, maxIter=10000000)
+    cost_Hist = cost(w_Hist, b_Hist, dataNormX, dataGenY)
 
-gdpForPrediction = 100000
-PredictionBasedOnGdp = f_wbOnOne(miuX, sigmaX, w, b, gdpForPrediction, idxfeature=1) 
-xForPred = np.array([10000, 100000, 100, 0.30])
-PredictionBasedOnAll = f_wbOnAll(miuX, sigmaX, w, b, xForPred) 
-print(f"Prediction Based on the GDP ({gdpForPrediction}): {PredictionBasedOnGdp}")
-print(f"Prediction Based on all features ({xForPred}): {PredictionBasedOnAll}")
+
+
+    chartOfCostVsIteration(cost_Hist)
+    chartOfPredictionsBasedOnFeature(dataGenX, dataGenY, miuX, sigmaX, w, b, 1, "Gross Domestic Product (GDP)")
+    gdpForPrediction = 100000
+    PredictionBasedOnGdp = f_wbOnOne(miuX, sigmaX, w, b, gdpForPrediction, idxfeature=1) 
+    xForPred = np.array([10000, 100000, 100, 0.30])
+    PredictionBasedOnAll = f_wbOnAll(miuX, sigmaX, w, b, xForPred) 
+    print(f"Prediction Based on the GDP ({gdpForPrediction}): {PredictionBasedOnGdp}")
+    print(f"Prediction Based on all features ({xForPred}): {PredictionBasedOnAll}")
