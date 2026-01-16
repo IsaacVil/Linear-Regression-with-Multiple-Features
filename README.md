@@ -389,3 +389,216 @@ This project is a complete and educational example of:
 	- Square meters of the restaurant.
 
 The main focus is to understand **step by step** how to train a multiple linear regression model to predict **restaurant profit** from these economic and business factors.
+
+---
+
+## Logistic Regression Model for Email Spam Classification
+
+In addition to the regression example, this repository also contains a **binary classification project** in the folder [classification](classification) that implements **logistic regression from scratch (with L2 regularization)** to detect whether an email is **spam or not spam** based on engineered text features.
+
+The main files are:
+
+- [classification/classification.py](classification/classification.py): core logistic regression utilities (normalization, gradients, gradient descent, regularization, prediction).
+- [classification/emailSpamPrediction.py](classification/emailSpamPrediction.py): end‑to‑end training script and **Tkinter GUI** to interactively test the spam classifier.
+
+---
+
+### 1. Problem Statement (Classification)
+
+The goal is to build a model that, given the text of an email and some metadata, estimates the **probability that the email is spam**.
+
+The output of the model is a probability:
+
+$$
+\hat{y} = P(\text{spam} \mid \mathbf{x}) \in (0, 1)
+$$
+
+and the final decision is obtained by applying a **decision boundary** (threshold) of **0.7**:
+
+- If $\hat{y} \geq 0.7$ → the email is classified as **SPAM**.
+- If $\hat{y} < 0.7$ → the email is classified as **NOT SPAM**.
+
+Here, $\mathbf{x}$ is a vector of numerical features extracted from the email text.
+
+---
+
+### 2. Dataset and Feature Extraction
+
+The dataset used for training is a CSV file located at:
+
+- [classification/dataset/spam_ham_dataset.csv](classification/dataset/spam_ham_dataset.csv)
+
+The helper function `parse_csv_xy(relative_path)` in [classification/emailSpamPrediction.py](classification/emailSpamPrediction.py) reads this file and returns:
+
+- `X`: a list of raw email texts.
+- `y`: a list of binary labels (0 = ham, 1 = spam).
+
+Each raw email is converted into a **10‑dimensional feature vector** by the function `extractEmail(email, spamReport)`:
+
+1. Total word count.
+2. Number of ALL CAPS words.
+3. Ratio of ALL CAPS words.
+4. Number of numeric‑only tokens.
+5. Number of links (URLs or "www.").
+6. Number of exclamation marks (`!`).
+7. Ratio of exclamation marks to message length.
+8. Number of dollar symbols (`$`).
+9. Count of typical spam keywords ("free", "win", "cash", "offer", etc.).
+10. Number of **previous spam reports** for the sender (a synthetic feature used for experimentation; controlled via the `DEBUG` flag in the GUI).
+
+The result of `extractEmail` is a NumPy array of shape `(1, 10)` ready to be stacked into a design matrix.
+
+---
+
+### 3. Feature Normalization (Classification)
+
+As in the regression project, features are standardized with the function `normX(x)` defined in [classification/classification.py](classification/classification.py).
+
+Given a matrix $X \in \mathbb{R}^{m \times n}$ with $m$ examples and $n$ features, the function computes for each feature $j$:
+
+- Mean $\mu_j$.
+- Standard deviation $\sigma_j$ (with a safe guard so that features with zero variance use $\sigma_j = 1$).
+
+Then it returns:
+
+- `z`: normalized features, where each column has mean 0 and standard deviation 1.
+- `miu`: vector of means.
+- `sigma`: vector of standard deviations.
+
+These statistics are necessary to normalize **new emails** before passing them to the model at prediction time.
+
+---
+
+### 4. Logistic Regression Model
+
+Let $X \in \mathbb{R}^{m \times n}$ be the normalized feature matrix, $\mathbf{w} \in \mathbb{R}^n$ the vector of weights, $b \in \mathbb{R}$ the bias and $\mathbf{y} \in \{0,1\}^m$ the true labels.
+
+The **logistic regression model** computes the probability of spam as:
+
+$$
+\hat{\mathbf{y}} = \sigma(X \mathbf{w} + b)
+$$
+
+where $\sigma(z)$ is the **sigmoid function**:
+
+$$
+\sigma(z) = \frac{1}{1 + e^{-z}}
+$$
+
+In [classification/classification.py](classification/classification.py) this is implemented by the function `sigmoid(z)` and used in the gradient and prediction computations.
+
+For individual predictions with pre‑computed `miu` and `sigma`, the helper function `f_wbOnAll(miu, sigma, w, b, predic)` normalizes a feature vector and returns its spam probability.
+
+---
+
+### 5. Cost Function (Logistic Loss) and Regularization
+
+The classification model uses the **logistic loss** (cross‑entropy) as the base cost, extended with **L2 regularization** on the weights to reduce overfitting.
+
+Without regularization, the cost for a batch of $m$ examples is:
+
+$$
+J(\mathbf{w}, b) = -\frac{1}{m} \sum_{i=1}^{m} \Big[ y^{(i)} \log(\hat{y}^{(i)}) + (1 - y^{(i)}) \log(1 - \hat{y}^{(i)}) \Big]
+$$
+
+In [classification/classification.py](classification/classification.py), the function `cost(w_Hist, b_Hist, x, y)` computes this loss for all saved parameter values, making sure to clip the predictions between a small epsilon and $1 - \text{epsilon}$ to avoid taking $\log(0)$.
+
+For training with **L2 regularization**, the gradients are adjusted to include a term proportional to $\lambda \mathbf{w}$, where $\lambda$ is a hyperparameter that controls the strength of the penalty.
+
+---
+
+### 6. Gradients and Gradient Descent (Classification)
+
+The gradients of the logistic loss with respect to the parameters are computed by:
+
+$$
+\frac{\partial J}{\partial \mathbf{w}} = \frac{1}{m} X^T (\hat{\mathbf{y}} - \mathbf{y})
+\quad , \quad
+\frac{\partial J}{\partial b} = \frac{1}{m} \sum_{i=1}^{m} (\hat{y}^{(i)} - y^{(i)})
+$$
+
+In [classification/classification.py](classification/classification.py) there are two key gradient functions:
+
+- `gradient(X, y, w, b)`: gradient **without** regularization.
+- `gradientReg(X, y, w, b, lambda_)`: gradient **with L2 regularization**, which adds `(lambda_ * w) / m` to the weight gradient.
+
+Training is performed with **batch gradient descent**:
+
+- `gradientDescent(X, y, w, b, alpha, maxIter, epsilon)`: plain logistic regression.
+- `gradientDescentReg(X, y, w, b, alpha, maxIter, epsilon, lambda_)`: logistic regression **with L2 regularization**.
+
+Both functions keep track of all intermediate values of `w` and `b` in `w_Hist` and `b_Hist`, which can be used later for analysis or plotting.
+
+---
+
+### 7. Interactive GUI: Email Spam Predictor
+
+Once the model is trained, [classification/emailSpamPrediction.py](classification/emailSpamPrediction.py) launches a **Tkinter desktop application** via the function `emailSender(w, b)`.
+
+The GUI allows you to:
+
+- Compose an email: "From", "To", "Subject" and "Message" fields.
+- (In debug mode) set the number of **previous spam reports** for the sender.
+- Click **"Send Email"** to run the feature extraction and model prediction.
+
+On the **Prediction** tab the app shows:
+
+- The **spam probability** returned by the logistic regression model.
+- The **final classification**: `SPAM` or `NOT SPAM` depending on the 0.7 threshold.
+- A table with:
+	- Each feature name.
+	- Its numeric value.
+	- The learned weight for that feature.
+	- The contribution (value × weight) to the decision.
+
+This provides both an interactive demo and a simple form of **model interpretability**.
+
+---
+
+### 8. How to Run the Classification Project
+
+#### Requirements
+
+- Python 3.x
+- Python libraries:
+	- `numpy`
+	- `matplotlib` (imported by classification.py)
+	- `scikit-learn` (for dataset utilities, although not strictly required at runtime for the current CSV‑based flow)
+	- `tkinter` (comes with the standard Python distribution on most systems)
+
+You can install the external packages with:
+
+- `pip install numpy matplotlib scikit-learn`
+
+#### Execution
+
+1. Make sure the CSV dataset is available at `classification/dataset/spam_ham_dataset.csv`.
+2. Open a terminal in the root project folder.
+3. Run the spam classification script:
+
+	 - `python classification/emailSpamPrediction.py`
+
+This will:
+
+- Read and parse the spam/ham dataset.
+- Extract the 10 numerical features for each email.
+- Normalize the data.
+- Train a **logistic regression with L2 regularization** using gradient descent.
+- Open the **Email Spam Predictor** GUI so you can compose test emails and see how the model responds.
+
+---
+
+### 9. Conceptual Summary (Classification)
+
+The classification part of this repository is an educational example of:
+
+- **Logistic regression** implemented manually (no high‑level ML frameworks).
+- Practical **feature engineering** on email text:
+	- Capital letters, exclamation marks, links, money symbols.
+	- Presence of typical spam keywords.
+	- Simple synthetic metadata (previous spam reports).
+- **Standardization** of input features for stable training.
+- **Gradient descent** with **L2 regularization** to mitigate overfitting.
+- A small but complete **end‑to‑end application** with a graphical interface to explore model behavior interactively.
+
+Together with the regression project, this provides two complementary examples: one for **continuous value prediction (regression)** and one for **binary classification**, both implemented from scratch to highlight the underlying mathematics and algorithms.

@@ -1,0 +1,1896 @@
+-- =============================================
+-- SISTEMA DE GESTIÓN DE CITAS - BASE DE DATOS
+-- SQL Server Database Schema
+-- Multi-tenancy Architecture
+-- =============================================
+
+-- =============================================
+-- TABLAS DE USUARIOS Y AUTENTICACIÓN
+-- =============================================
+
+CREATE TABLE Users (
+    UserId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    Email NVARCHAR(255) NOT NULL UNIQUE,
+    PhoneNumber NVARCHAR(20) NOT NULL,
+    PasswordHash NVARCHAR(255) NOT NULL,
+    FirstName NVARCHAR(100) NOT NULL,
+    LastName NVARCHAR(100) NOT NULL,
+    ProfileImageUrl NVARCHAR(500),
+    IsActive BIT DEFAULT 1,
+    AcceptedMarketingConsent BIT DEFAULT 0,
+    DateOfBirth DATE,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    UpdatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    LastLoginAt DATETIME2,
+    INDEX IX_Users_Email (Email),
+    INDEX IX_Users_PhoneNumber (PhoneNumber)
+);
+
+-- =============================================
+-- TABLAS DE NEGOCIOS (MULTI-TENANCY)
+-- =============================================
+
+CREATE TABLE Industries (
+    IndustryId INT PRIMARY KEY IDENTITY(1,1),
+    Name NVARCHAR(100) NOT NULL UNIQUE,
+    DisplayName NVARCHAR(100) NOT NULL,
+    Description NVARCHAR(500),
+    BasePriceMonthly DECIMAL(10,2) NOT NULL, -- Precio base mensual
+    PricePerAppointment DECIMAL(10,2) NOT NULL, -- Precio por cita adicional
+    IconUrl NVARCHAR(500),
+    IsActive BIT DEFAULT 1,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE()
+);
+
+-- Insertar industrias por defecto
+INSERT INTO Industries (Name, DisplayName, Description, BasePriceMonthly, PricePerAppointment) VALUES
+('barbershop', 'Barbería', 'Servicios de corte y estilismo de cabello', 15.00, 0.20),
+('dental', 'Clínica Dental', 'Servicios odontológicos', 40.00, 0.50),
+('medical', 'Consultorio Médico', 'Servicios médicos generales y especializados', 60.00, 0.70),
+('veterinary', 'Veterinaria', 'Servicios veterinarios', 35.00, 0.45),
+('restaurant', 'Restaurante', 'Reservaciones de mesas', 25.00, 0.15),
+('spa', 'Spa/Estética', 'Servicios de belleza y bienestar', 30.00, 0.35);
+
+CREATE TABLE Businesses (
+    BusinessId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    OwnerId UNIQUEIDENTIFIER NOT NULL,
+    IndustryId INT NOT NULL,
+    BusinessName NVARCHAR(200) NOT NULL,
+    LegalName NVARCHAR(200),
+    TaxId NVARCHAR(50), -- Cédula jurídica CR
+    Description NVARCHAR(1000),
+    LogoUrl NVARCHAR(500),
+    CoverImageUrl NVARCHAR(500),
+    PrimaryColor NVARCHAR(7) DEFAULT '#000000', -- HEX color
+    SecondaryColor NVARCHAR(7) DEFAULT '#FFFFFF',
+    Phone NVARCHAR(20),
+    Email NVARCHAR(255),
+    WebsiteUrl NVARCHAR(500),
+    FacebookUrl NVARCHAR(500),
+    InstagramUrl NVARCHAR(500),
+    WhatsAppNumber NVARCHAR(20),
+    GoogleMyBusinessUrl NVARCHAR(500),
+    IsActive BIT DEFAULT 1,
+    SubscriptionStatus NVARCHAR(20) DEFAULT 'trial', -- trial, active, suspended, cancelled
+    SubscriptionStartDate DATETIME2,
+    SubscriptionEndDate DATETIME2,
+    TrialEndsAt DATETIME2, -- Primer mes gratis
+    LastPaymentDate DATETIME2,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    UpdatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (OwnerId) REFERENCES Users(UserId),
+    FOREIGN KEY (IndustryId) REFERENCES Industries(IndustryId),
+    INDEX IX_Businesses_OwnerId (OwnerId),
+    INDEX IX_Businesses_SubscriptionStatus (SubscriptionStatus)
+);
+
+CREATE TABLE BusinessLocations (
+    LocationId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    BusinessId UNIQUEIDENTIFIER NOT NULL,
+    LocationName NVARCHAR(200) NOT NULL,
+    Address NVARCHAR(500) NOT NULL,
+    City NVARCHAR(100) NOT NULL,
+    State NVARCHAR(100) NOT NULL, -- Provincia en CR
+    Country NVARCHAR(100) DEFAULT 'Costa Rica',
+    PostalCode NVARCHAR(20),
+    Latitude DECIMAL(10,8),
+    Longitude DECIMAL(11,8),
+    Phone NVARCHAR(20),
+    Email NVARCHAR(255),
+    IsMainLocation BIT DEFAULT 0,
+    IsActive BIT DEFAULT 1,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    UpdatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (BusinessId) REFERENCES Businesses(BusinessId) ON DELETE CASCADE,
+    INDEX IX_BusinessLocations_BusinessId (BusinessId)
+);
+
+CREATE TABLE BusinessHours (
+    HourId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    LocationId UNIQUEIDENTIFIER NOT NULL,
+    DayOfWeek INT NOT NULL, -- 0=Domingo, 6=Sábado
+    OpenTime TIME NOT NULL,
+    CloseTime TIME NOT NULL,
+    IsOpen BIT DEFAULT 1,
+    FOREIGN KEY (LocationId) REFERENCES BusinessLocations(LocationId) ON DELETE CASCADE,
+    INDEX IX_BusinessHours_LocationId (LocationId)
+);
+
+CREATE TABLE BusinessClosedDates (
+    ClosedDateId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    LocationId UNIQUEIDENTIFIER NOT NULL,
+    ClosedDate DATE NOT NULL,
+    Reason NVARCHAR(200),
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (LocationId) REFERENCES BusinessLocations(LocationId) ON DELETE CASCADE,
+    INDEX IX_BusinessClosedDates_LocationId_Date (LocationId, ClosedDate)
+);
+
+-- =============================================
+-- TABLAS DE EMPLEADOS Y ROLES
+-- =============================================
+
+CREATE TABLE BusinessRoles (
+    RoleId INT PRIMARY KEY IDENTITY(1,1),
+    RoleName NVARCHAR(50) NOT NULL UNIQUE,
+    DisplayName NVARCHAR(100) NOT NULL,
+    Description NVARCHAR(500),
+    Permissions NVARCHAR(MAX) -- JSON con permisos específicos
+);
+
+INSERT INTO BusinessRoles (RoleName, DisplayName, Description) VALUES
+('owner', 'Propietario', 'Control total del negocio'),
+('manager', 'Gerente', 'Gestión de operaciones y empleados'),
+('receptionist', 'Recepcionista', 'Gestión de citas del día'),
+('employee', 'Empleado', 'Ver agenda personal y atender citas');
+
+CREATE TABLE BusinessEmployees (
+    EmployeeId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    BusinessId UNIQUEIDENTIFIER NOT NULL,
+    LocationId UNIQUEIDENTIFIER, -- NULL = disponible en todas las ubicaciones
+    UserId UNIQUEIDENTIFIER NOT NULL,
+    RoleId INT NOT NULL,
+    DisplayName NVARCHAR(200), -- Nombre profesional
+    Title NVARCHAR(100), -- Título/Especialidad
+    Bio NVARCHAR(1000),
+    ProfileImageUrl NVARCHAR(500),
+    IsActive BIT DEFAULT 1,
+    GoogleCalendarId NVARCHAR(255), -- Para sincronización
+    HireDate DATE,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    UpdatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (BusinessId) REFERENCES Businesses(BusinessId) ON DELETE CASCADE,
+    FOREIGN KEY (LocationId) REFERENCES BusinessLocations(LocationId),
+    FOREIGN KEY (UserId) REFERENCES Users(UserId),
+    FOREIGN KEY (RoleId) REFERENCES BusinessRoles(RoleId),
+    INDEX IX_BusinessEmployees_BusinessId (BusinessId),
+    INDEX IX_BusinessEmployees_UserId (UserId),
+    UNIQUE (BusinessId, UserId) -- Un usuario solo puede tener un rol por negocio
+);
+
+CREATE TABLE EmployeeWorkingHours (
+    WorkingHourId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    EmployeeId UNIQUEIDENTIFIER NOT NULL,
+    DayOfWeek INT NOT NULL,
+    StartTime TIME NOT NULL,
+    EndTime TIME NOT NULL,
+    IsAvailable BIT DEFAULT 1,
+    FOREIGN KEY (EmployeeId) REFERENCES BusinessEmployees(EmployeeId) ON DELETE CASCADE,
+    INDEX IX_EmployeeWorkingHours_EmployeeId (EmployeeId)
+);
+
+CREATE TABLE EmployeeTimeOff (
+    TimeOffId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    EmployeeId UNIQUEIDENTIFIER NOT NULL,
+    StartDate DATETIME2 NOT NULL,
+    EndDate DATETIME2 NOT NULL,
+    Reason NVARCHAR(200),
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (EmployeeId) REFERENCES BusinessEmployees(EmployeeId) ON DELETE CASCADE,
+    INDEX IX_EmployeeTimeOff_EmployeeId (EmployeeId)
+);
+
+-- =============================================
+-- TABLAS DE SERVICIOS
+-- =============================================
+
+CREATE TABLE ServiceCategories (
+    CategoryId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    BusinessId UNIQUEIDENTIFIER NOT NULL,
+    CategoryName NVARCHAR(100) NOT NULL,
+    DisplayOrder INT DEFAULT 0,
+    IsActive BIT DEFAULT 1,
+    FOREIGN KEY (BusinessId) REFERENCES Businesses(BusinessId) ON DELETE CASCADE,
+    INDEX IX_ServiceCategories_BusinessId (BusinessId)
+);
+
+CREATE TABLE Services (
+    ServiceId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    BusinessId UNIQUEIDENTIFIER NOT NULL,
+    CategoryId UNIQUEIDENTIFIER,
+    ServiceName NVARCHAR(200) NOT NULL,
+    Description NVARCHAR(1000),
+    DurationMinutes INT NOT NULL,
+    Price DECIMAL(10,2) NOT NULL,
+    ImageUrl NVARCHAR(500),
+    IsActive BIT DEFAULT 1,
+    RequiresDeposit BIT DEFAULT 0,
+    AllowOnlineBooking BIT DEFAULT 1,
+    MaxAdvanceBookingDays INT DEFAULT 30,
+    MinAdvanceBookingHours INT DEFAULT 2,
+    IsGroupService BIT DEFAULT 0, -- Para servicios grupales
+    MaxGroupSize INT DEFAULT 1,
+    IsMobileService BIT DEFAULT 0, -- Servicio a domicilio
+    DisplayOrder INT DEFAULT 0,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    UpdatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (BusinessId) REFERENCES Businesses(BusinessId) ON DELETE CASCADE,
+    FOREIGN KEY (CategoryId) REFERENCES ServiceCategories(CategoryId),
+    INDEX IX_Services_BusinessId (BusinessId),
+    INDEX IX_Services_CategoryId (CategoryId)
+);
+
+-- Servicios que pueden realizar cada empleado
+CREATE TABLE EmployeeServices (
+    EmployeeServiceId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    EmployeeId UNIQUEIDENTIFIER NOT NULL,
+    ServiceId UNIQUEIDENTIFIER NOT NULL,
+    FOREIGN KEY (EmployeeId) REFERENCES BusinessEmployees(EmployeeId) ON DELETE CASCADE,
+    FOREIGN KEY (ServiceId) REFERENCES Services(ServiceId) ON DELETE CASCADE,
+    UNIQUE (EmployeeId, ServiceId),
+    INDEX IX_EmployeeServices_EmployeeId (EmployeeId),
+    INDEX IX_EmployeeServices_ServiceId (ServiceId)
+);
+
+-- Paquetes de servicios
+CREATE TABLE ServicePackages (
+    PackageId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    BusinessId UNIQUEIDENTIFIER NOT NULL,
+    PackageName NVARCHAR(200) NOT NULL,
+    Description NVARCHAR(1000),
+    TotalPrice DECIMAL(10,2) NOT NULL,
+    DiscountPercentage DECIMAL(5,2),
+    ImageUrl NVARCHAR(500),
+    IsActive BIT DEFAULT 1,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (BusinessId) REFERENCES Businesses(BusinessId) ON DELETE CASCADE,
+    INDEX IX_ServicePackages_BusinessId (BusinessId)
+);
+
+CREATE TABLE PackageServices (
+    PackageServiceId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    PackageId UNIQUEIDENTIFIER NOT NULL,
+    ServiceId UNIQUEIDENTIFIER NOT NULL,
+    ServiceOrder INT DEFAULT 0, -- Orden en secuencia
+    FOREIGN KEY (PackageId) REFERENCES ServicePackages(PackageId) ON DELETE CASCADE,
+    FOREIGN KEY (ServiceId) REFERENCES Services(ServiceId),
+    INDEX IX_PackageServices_PackageId (PackageId)
+);
+
+-- =============================================
+-- TABLAS DE RECURSOS FÍSICOS
+-- =============================================
+
+CREATE TABLE ResourceTypes (
+    ResourceTypeId INT PRIMARY KEY IDENTITY(1,1),
+    TypeName NVARCHAR(50) NOT NULL UNIQUE,
+    DisplayName NVARCHAR(100) NOT NULL
+);
+
+INSERT INTO ResourceTypes (TypeName, DisplayName) VALUES
+('chair', 'Silla/Estación'),
+('room', 'Sala/Consultorio'),
+('table', 'Mesa'),
+('equipment', 'Equipo Especializado'),
+('vehicle', 'Vehículo');
+
+CREATE TABLE Resources (
+    ResourceId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    LocationId UNIQUEIDENTIFIER NOT NULL,
+    ResourceTypeId INT NOT NULL,
+    ResourceName NVARCHAR(100) NOT NULL,
+    Description NVARCHAR(500),
+    Capacity INT DEFAULT 1, -- Para mesas de restaurante
+    IsActive BIT DEFAULT 1,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (LocationId) REFERENCES BusinessLocations(LocationId) ON DELETE CASCADE,
+    FOREIGN KEY (ResourceTypeId) REFERENCES ResourceTypes(ResourceTypeId),
+    INDEX IX_Resources_LocationId (LocationId)
+);
+
+-- Recursos requeridos por servicio
+CREATE TABLE ServiceResources (
+    ServiceResourceId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    ServiceId UNIQUEIDENTIFIER NOT NULL,
+    ResourceTypeId INT NOT NULL,
+    QuantityRequired INT DEFAULT 1,
+    FOREIGN KEY (ServiceId) REFERENCES Services(ServiceId) ON DELETE CASCADE,
+    FOREIGN KEY (ResourceTypeId) REFERENCES ResourceTypes(ResourceTypeId),
+    INDEX IX_ServiceResources_ServiceId (ServiceId)
+);
+
+-- =============================================
+-- TABLAS DE CITAS (APPOINTMENTS)
+-- =============================================
+
+CREATE TABLE AppointmentStatuses (
+    StatusId INT PRIMARY KEY IDENTITY(1,1),
+    StatusName NVARCHAR(50) NOT NULL UNIQUE,
+    DisplayName NVARCHAR(100) NOT NULL
+);
+
+INSERT INTO AppointmentStatuses (StatusName, DisplayName) VALUES
+('pending', 'Pendiente'),
+('confirmed', 'Confirmada'),
+('in_progress', 'En Progreso'),
+('completed', 'Completada'),
+('cancelled_by_client', 'Cancelada por Cliente'),
+('cancelled_by_business', 'Cancelada por Negocio'),
+('no_show', 'No Asistió');
+
+CREATE TABLE Appointments (
+    AppointmentId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    BusinessId UNIQUEIDENTIFIER NOT NULL,
+    LocationId UNIQUEIDENTIFIER NOT NULL,
+    ClientId UNIQUEIDENTIFIER NOT NULL,
+    EmployeeId UNIQUEIDENTIFIER, -- NULL si no hay preferencia
+    ServiceId UNIQUEIDENTIFIER,
+    PackageId UNIQUEIDENTIFIER, -- NULL si no es paquete
+    StatusId INT NOT NULL DEFAULT 1,
+    AppointmentDate DATE NOT NULL,
+    StartTime TIME NOT NULL,
+    EndTime TIME NOT NULL,
+    DurationMinutes INT NOT NULL,
+    Notes NVARCHAR(1000), -- Notas del cliente
+    InternalNotes NVARCHAR(1000), -- Notas internas del negocio
+    ClientAddress NVARCHAR(500), -- Para servicios a domicilio
+    TotalPrice DECIMAL(10,2),
+    IsRecurring BIT DEFAULT 0,
+    RecurrencePattern NVARCHAR(MAX), -- JSON con patrón de recurrencia
+    ParentAppointmentId UNIQUEIDENTIFIER, -- Para citas recurrentes
+    RequiresConfirmation BIT DEFAULT 0,
+    ConfirmedAt DATETIME2,
+    CancelledAt DATETIME2,
+    CancellationReason NVARCHAR(500),
+    CheckedInAt DATETIME2,
+    CompletedAt DATETIME2,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    UpdatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (BusinessId) REFERENCES Businesses(BusinessId),
+    FOREIGN KEY (LocationId) REFERENCES BusinessLocations(LocationId),
+    FOREIGN KEY (ClientId) REFERENCES Users(UserId),
+    FOREIGN KEY (EmployeeId) REFERENCES BusinessEmployees(EmployeeId),
+    FOREIGN KEY (ServiceId) REFERENCES Services(ServiceId),
+    FOREIGN KEY (PackageId) REFERENCES ServicePackages(PackageId),
+    FOREIGN KEY (StatusId) REFERENCES AppointmentStatuses(StatusId),
+    FOREIGN KEY (ParentAppointmentId) REFERENCES Appointments(AppointmentId),
+    INDEX IX_Appointments_BusinessId (BusinessId),
+    INDEX IX_Appointments_ClientId (ClientId),
+    INDEX IX_Appointments_EmployeeId (EmployeeId),
+    INDEX IX_Appointments_Date (AppointmentDate),
+    INDEX IX_Appointments_Status (StatusId)
+);
+
+-- Para citas grupales (múltiples clientes)
+CREATE TABLE AppointmentParticipants (
+    ParticipantId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    AppointmentId UNIQUEIDENTIFIER NOT NULL,
+    ClientId UNIQUEIDENTIFIER NOT NULL,
+    Status NVARCHAR(20) DEFAULT 'confirmed',
+    JoinedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (AppointmentId) REFERENCES Appointments(AppointmentId) ON DELETE CASCADE,
+    FOREIGN KEY (ClientId) REFERENCES Users(UserId),
+    INDEX IX_AppointmentParticipants_AppointmentId (AppointmentId)
+);
+
+-- Recursos asignados a una cita
+CREATE TABLE AppointmentResources (
+    AppointmentResourceId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    AppointmentId UNIQUEIDENTIFIER NOT NULL,
+    ResourceId UNIQUEIDENTIFIER NOT NULL,
+    FOREIGN KEY (AppointmentId) REFERENCES Appointments(AppointmentId) ON DELETE CASCADE,
+    FOREIGN KEY (ResourceId) REFERENCES Resources(ResourceId),
+    INDEX IX_AppointmentResources_AppointmentId (AppointmentId)
+);
+
+-- =============================================
+-- TABLAS DE RESEÑAS Y RATINGS
+-- =============================================
+
+CREATE TABLE Reviews (
+    ReviewId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    AppointmentId UNIQUEIDENTIFIER NOT NULL,
+    BusinessId UNIQUEIDENTIFIER NOT NULL,
+    ClientId UNIQUEIDENTIFIER NOT NULL,
+    EmployeeId UNIQUEIDENTIFIER,
+    Rating INT NOT NULL CHECK (Rating >= 1 AND Rating <= 5),
+    Comment NVARCHAR(1000),
+    IsPublic BIT DEFAULT 1,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (AppointmentId) REFERENCES Appointments(AppointmentId),
+    FOREIGN KEY (BusinessId) REFERENCES Businesses(BusinessId),
+    FOREIGN KEY (ClientId) REFERENCES Users(UserId),
+    FOREIGN KEY (EmployeeId) REFERENCES BusinessEmployees(EmployeeId),
+    UNIQUE (AppointmentId), -- Solo una reseña por cita
+    INDEX IX_Reviews_BusinessId (BusinessId),
+    INDEX IX_Reviews_EmployeeId (EmployeeId)
+);
+
+-- =============================================
+-- TABLAS DE FACTURACIÓN Y PAGOS
+-- =============================================
+
+CREATE TABLE Invoices (
+    InvoiceId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    BusinessId UNIQUEIDENTIFIER NOT NULL,
+    InvoiceNumber NVARCHAR(50) NOT NULL UNIQUE,
+    BillingPeriodStart DATE NOT NULL,
+    BillingPeriodEnd DATE NOT NULL,
+    TotalAppointments INT NOT NULL,
+    BasePrice DECIMAL(10,2) NOT NULL,
+    AppointmentCharges DECIMAL(10,2) NOT NULL,
+    Subtotal DECIMAL(10,2) NOT NULL,
+    TaxPercentage DECIMAL(5,2) DEFAULT 13.00, -- IVA en Costa Rica
+    TaxAmount DECIMAL(10,2) NOT NULL,
+    Total DECIMAL(10,2) NOT NULL,
+    Currency NVARCHAR(3) DEFAULT 'USD',
+    Status NVARCHAR(20) DEFAULT 'pending', -- pending, paid, overdue, cancelled
+    DueDate DATE NOT NULL,
+    PaidAt DATETIME2,
+    ElectronicInvoiceKey NVARCHAR(100), -- Clave numérica Hacienda CR
+    ElectronicInvoiceXml NVARCHAR(MAX), -- XML de factura electrónica
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (BusinessId) REFERENCES Businesses(BusinessId),
+    INDEX IX_Invoices_BusinessId (BusinessId),
+    INDEX IX_Invoices_Status (Status)
+);
+
+CREATE TABLE Payments (
+    PaymentId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    InvoiceId UNIQUEIDENTIFIER NOT NULL,
+    StripePaymentIntentId NVARCHAR(255),
+    Amount DECIMAL(10,2) NOT NULL,
+    Currency NVARCHAR(3) DEFAULT 'USD',
+    Status NVARCHAR(20) DEFAULT 'pending', -- pending, succeeded, failed, refunded
+    PaymentMethod NVARCHAR(50), -- card, bank_transfer, etc.
+    FailureReason NVARCHAR(500),
+    ProcessedAt DATETIME2,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (InvoiceId) REFERENCES Invoices(InvoiceId),
+    INDEX IX_Payments_InvoiceId (InvoiceId),
+    INDEX IX_Payments_StripePaymentIntentId (StripePaymentIntentId)
+);
+
+-- =============================================
+-- TABLAS DE MARKETING
+-- =============================================
+
+CREATE TABLE EmailCampaigns (
+    CampaignId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    BusinessId UNIQUEIDENTIFIER NOT NULL,
+    CampaignName NVARCHAR(200) NOT NULL,
+    Subject NVARCHAR(255) NOT NULL,
+    EmailBody NVARCHAR(MAX) NOT NULL,
+    CampaignType NVARCHAR(50), -- seasonal, reengagement, birthday
+    SegmentCriteria NVARCHAR(MAX), -- JSON con criterios de segmentación
+    Status NVARCHAR(20) DEFAULT 'draft', -- draft, scheduled, sent, cancelled
+    ScheduledFor DATETIME2,
+    SentAt DATETIME2,
+    RecipientCount INT DEFAULT 0,
+    OpenCount INT DEFAULT 0,
+    ClickCount INT DEFAULT 0,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (BusinessId) REFERENCES Businesses(BusinessId) ON DELETE CASCADE,
+    INDEX IX_EmailCampaigns_BusinessId (BusinessId)
+);
+
+CREATE TABLE EmailCampaignRecipients (
+    RecipientId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    CampaignId UNIQUEIDENTIFIER NOT NULL,
+    UserId UNIQUEIDENTIFIER NOT NULL,
+    SentAt DATETIME2,
+    OpenedAt DATETIME2,
+    ClickedAt DATETIME2,
+    FOREIGN KEY (CampaignId) REFERENCES EmailCampaigns(CampaignId) ON DELETE CASCADE,
+    FOREIGN KEY (UserId) REFERENCES Users(UserId),
+    INDEX IX_EmailCampaignRecipients_CampaignId (CampaignId)
+);
+
+CREATE TABLE Coupons (
+    CouponId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    BusinessId UNIQUEIDENTIFIER NOT NULL,
+    CouponCode NVARCHAR(50) NOT NULL,
+    Description NVARCHAR(500),
+    DiscountType NVARCHAR(20) NOT NULL, -- percentage, fixed_amount
+    DiscountValue DECIMAL(10,2) NOT NULL,
+    MinimumPurchase DECIMAL(10,2),
+    MaxUses INT, -- NULL = ilimitado
+    UsedCount INT DEFAULT 0,
+    ValidFrom DATETIME2 NOT NULL,
+    ValidUntil DATETIME2 NOT NULL,
+    ApplicableServices NVARCHAR(MAX), -- JSON array de ServiceIds, NULL = todos
+    IsActive BIT DEFAULT 1,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (BusinessId) REFERENCES Businesses(BusinessId) ON DELETE CASCADE,
+    UNIQUE (BusinessId, CouponCode),
+    INDEX IX_Coupons_BusinessId (BusinessId),
+    INDEX IX_Coupons_CouponCode (CouponCode)
+);
+
+CREATE TABLE CouponUsage (
+    UsageId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    CouponId UNIQUEIDENTIFIER NOT NULL,
+    UserId UNIQUEIDENTIFIER NOT NULL,
+    AppointmentId UNIQUEIDENTIFIER,
+    UsedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (CouponId) REFERENCES Coupons(CouponId),
+    FOREIGN KEY (UserId) REFERENCES Users(UserId),
+    FOREIGN KEY (AppointmentId) REFERENCES Appointments(AppointmentId),
+    INDEX IX_CouponUsage_CouponId (CouponId)
+);
+
+-- =============================================
+-- TABLAS DE NOTIFICACIONES
+-- =============================================
+
+CREATE TABLE NotificationTemplates (
+    TemplateId INT PRIMARY KEY IDENTITY(1,1),
+    TemplateName NVARCHAR(100) NOT NULL UNIQUE,
+    DisplayName NVARCHAR(200),
+    EmailSubject NVARCHAR(255),
+    EmailBody NVARCHAR(MAX),
+    PushTitle NVARCHAR(100),
+    PushBody NVARCHAR(500),
+    IsSystemTemplate BIT DEFAULT 1 -- No puede ser eliminado por usuario
+);
+
+INSERT INTO NotificationTemplates (TemplateName, DisplayName, EmailSubject, PushTitle, PushBody) VALUES
+('appointment_created', 'Cita Creada', 'Confirmación de cita - {{business_name}}', 'Cita confirmada', 'Tu cita ha sido confirmada para el {{date}} a las {{time}}'),
+('appointment_reminder_24h', 'Recordatorio 24h', 'Recordatorio: Tienes una cita mañana', 'Cita mañana', 'Recuerda tu cita mañana a las {{time}} en {{business_name}}'),
+('appointment_reminder_2h', 'Recordatorio 2h', 'Tu cita es en 2 horas', 'Cita en 2 horas', 'Tu cita en {{business_name}} es a las {{time}}'),
+('appointment_cancelled', 'Cita Cancelada', 'Tu cita ha sido cancelada', 'Cita cancelada', 'Tu cita del {{date}} ha sido cancelada'),
+('review_request', 'Solicitud de Reseña', '¿Cómo fue tu experiencia?', 'Califica tu experiencia', '¿Cómo fue tu visita a {{business_name}}?'),
+('new_appointment_business', 'Nueva Cita (Negocio)', 'Nueva cita agendada', 'Nueva cita', '{{client_name}} agendó una cita para {{date}}');
+
+CREATE TABLE Notifications (
+    NotificationId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    UserId UNIQUEIDENTIFIER NOT NULL,
+    TemplateId INT,
+    Title NVARCHAR(200),
+    Message NVARCHAR(1000),
+    NotificationType NVARCHAR(20), -- email, push, both
+    IsRead BIT DEFAULT 0,
+    ReadAt DATETIME2,
+    RelatedEntityType NVARCHAR(50), -- appointment, business, campaign
+    RelatedEntityId UNIQUEIDENTIFIER,
+    SentAt DATETIME2,
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (UserId) REFERENCES Users(UserId),
+    FOREIGN KEY (TemplateId) REFERENCES NotificationTemplates(TemplateId),
+    INDEX IX_Notifications_UserId (UserId),
+    INDEX IX_Notifications_IsRead (IsRead)
+);
+
+-- =============================================
+-- TABLAS DE CONFIGURACIÓN DEL NEGOCIO
+-- =============================================
+
+CREATE TABLE BusinessSettings (
+    SettingId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    BusinessId UNIQUEIDENTIFIER NOT NULL,
+    SettingKey NVARCHAR(100) NOT NULL,
+    SettingValue NVARCHAR(MAX),
+    DataType NVARCHAR(20) DEFAULT 'string', -- string, int, bool, json
+    UpdatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    FOREIGN KEY (BusinessId) REFERENCES Businesses(BusinessId) ON DELETE CASCADE,
+    UNIQUE (BusinessId, SettingKey),
+    INDEX IX_BusinessSettings_BusinessId (BusinessId)
+);
+
+-- Configuraciones por defecto
+-- Ejemplo de settings:
+-- cancellation_window_hours: 24
+-- require_appointment_confirmation: true
+-- auto_confirm_appointments: false
+-- allow_client_cancellation: true
+-- send_reminder_24h: true
+-- send_reminder_2h: true
+-- buffer_time_minutes: 15 (tiempo entre citas)
+-- max_advance_booking_days: 30
+
+-- =============================================
+-- TABLAS DE AUDITORÍA Y LOGS
+-- =============================================
+
+CREATE TABLE AuditLogs (
+    LogId UNIQUEIDENTIFIER PRIMARY KEY DEFAULT NEWID(),
+    UserId UNIQUEIDENTIFIER,
+    BusinessId UNIQUEIDENTIFIER,
+    Action NVARCHAR(100) NOT NULL,
+    EntityType NVARCHAR(50),
+    EntityId UNIQUEIDENTIFIER,
+    OldValues NVARCHAR(MAX), -- JSON
+    NewValues NVARCHAR(MAX), -- JSON
+    IpAddress NVARCHAR(45),
+    UserAgent NVARCHAR(500),
+    CreatedAt DATETIME2 DEFAULT GETUTCDATE(),
+    INDEX IX_AuditLogs_UserId (UserId),
+    INDEX IX_AuditLogs_BusinessId (BusinessId),
+    INDEX IX_AuditLogs_CreatedAt (CreatedAt)
+);
+
+-- =============================================
+-- VISTAS ÚTILES PARA REPORTES Y ANALYTICS
+-- =============================================
+
+-- Vista de estadísticas por negocio
+CREATE VIEW vw_BusinessStats AS
+SELECT 
+    b.BusinessId,
+    b.BusinessName,
+    b.IndustryId,
+    i.DisplayName as IndustryName,
+    COUNT(DISTINCT a.AppointmentId) as TotalAppointments,
+    COUNT(DISTINCT CASE WHEN a.StatusId = 4 THEN a.AppointmentId END) as CompletedAppointments,
+    COUNT(DISTINCT CASE WHEN a.StatusId IN (5,6) THEN a.AppointmentId END) as CancelledAppointments,
+    COUNT(DISTINCT CASE WHEN a.StatusId = 7 THEN a.AppointmentId END) as NoShowAppointments,
+    COUNT(DISTINCT a.ClientId) as UniqueClients,
+    COUNT(DISTINCT be.EmployeeId) as TotalEmployees,
+    AVG(CAST(r.Rating as FLOAT)) as AverageRating,
+    COUNT(DISTINCT r.ReviewId) as TotalReviews,
+    b.SubscriptionStatus,
+    b.CreatedAt as BusinessCreatedAt
+FROM Businesses b
+INNER JOIN Industries i ON b.IndustryId = i.IndustryId
+LEFT JOIN Appointments a ON b.BusinessId = a.BusinessId
+LEFT JOIN BusinessEmployees be ON b.BusinessId = be.BusinessId AND be.IsActive = 1
+LEFT JOIN Reviews r ON b.BusinessId = r.BusinessId
+GROUP BY 
+    b.BusinessId, b.BusinessName, b.IndustryId, i.DisplayName, 
+    b.SubscriptionStatus, b.CreatedAt;
+GO
+
+-- Vista de ocupación por negocio y fecha
+CREATE VIEW vw_BusinessOccupancy AS
+SELECT 
+    b.BusinessId,
+    b.BusinessName,
+    a.AppointmentDate,
+    COUNT(a.AppointmentId) as TotalAppointments,
+    SUM(a.DurationMinutes) as TotalMinutesBooked,
+    COUNT(DISTINCT a.EmployeeId) as EmployeesUsed,
+    AVG(CAST(a.DurationMinutes as FLOAT)) as AvgAppointmentDuration
+FROM Businesses b
+INNER JOIN Appointments a ON b.BusinessId = a.BusinessId
+WHERE a.StatusId NOT IN (5, 6, 7) -- Excluir canceladas y no-show
+GROUP BY b.BusinessId, b.BusinessName, a.AppointmentDate;
+GO
+
+-- Vista de revenue por servicio
+CREATE VIEW vw_ServiceRevenue AS
+SELECT 
+    s.ServiceId,
+    s.ServiceName,
+    s.BusinessId,
+    b.BusinessName,
+    COUNT(a.AppointmentId) as TimesBooked,
+    SUM(CASE WHEN a.StatusId = 4 THEN s.Price ELSE 0 END) as TotalRevenue,
+    AVG(CASE WHEN a.StatusId = 4 THEN CAST(s.Price as FLOAT) ELSE NULL END) as AvgRevenuePerBooking,
+    s.Price as CurrentPrice,
+    s.DurationMinutes,
+    CASE 
+        WHEN s.DurationMinutes > 0 
+        THEN (s.Price / s.DurationMinutes) * 60 
+        ELSE 0 
+    END as RevenuePerHour
+FROM Services s
+INNER JOIN Businesses b ON s.BusinessId = b.BusinessId
+LEFT JOIN Appointments a ON s.ServiceId = a.ServiceId
+GROUP BY 
+    s.ServiceId, s.ServiceName, s.BusinessId, b.BusinessName, 
+    s.Price, s.DurationMinutes;
+GO
+
+-- Vista de desempeño de empleados
+CREATE VIEW vw_EmployeePerformance AS
+SELECT 
+    be.EmployeeId,
+    be.DisplayName as EmployeeName,
+    be.BusinessId,
+    b.BusinessName,
+    COUNT(DISTINCT a.AppointmentId) as TotalAppointments,
+    COUNT(DISTINCT CASE WHEN a.StatusId = 4 THEN a.AppointmentId END) as CompletedAppointments,
+    COUNT(DISTINCT CASE WHEN a.StatusId = 7 THEN a.AppointmentId END) as NoShows,
+    SUM(CASE WHEN a.StatusId = 4 THEN a.TotalPrice ELSE 0 END) as TotalRevenue,
+    AVG(CAST(r.Rating as FLOAT)) as AvgRating,
+    COUNT(DISTINCT r.ReviewId) as TotalReviews,
+    CASE 
+        WHEN COUNT(DISTINCT a.AppointmentId) > 0 
+        THEN CAST(COUNT(DISTINCT CASE WHEN a.StatusId = 7 THEN a.AppointmentId END) as FLOAT) / COUNT(DISTINCT a.AppointmentId) * 100
+        ELSE 0 
+    END as NoShowRate
+FROM BusinessEmployees be
+INNER JOIN Businesses b ON be.BusinessId = b.BusinessId
+LEFT JOIN Appointments a ON be.EmployeeId = a.EmployeeId
+LEFT JOIN Reviews r ON be.EmployeeId = r.EmployeeId
+WHERE be.IsActive = 1
+GROUP BY be.EmployeeId, be.DisplayName, be.BusinessId, b.BusinessName;
+GO
+
+-- Vista de clientes recurrentes vs nuevos
+CREATE VIEW vw_ClientSegmentation AS
+SELECT 
+    u.UserId,
+    u.FirstName,
+    u.LastName,
+    u.Email,
+    COUNT(DISTINCT a.AppointmentId) as TotalAppointments,
+    MIN(a.CreatedAt) as FirstAppointmentDate,
+    MAX(a.CreatedAt) as LastAppointmentDate,
+    DATEDIFF(DAY, MAX(a.CreatedAt), GETUTCDATE()) as DaysSinceLastVisit,
+    CASE 
+        WHEN COUNT(DISTINCT a.AppointmentId) = 1 THEN 'New'
+        WHEN COUNT(DISTINCT a.AppointmentId) BETWEEN 2 AND 5 THEN 'Occasional'
+        WHEN COUNT(DISTINCT a.AppointmentId) > 5 THEN 'Loyal'
+    END as ClientSegment,
+    CASE 
+        WHEN DATEDIFF(DAY, MAX(a.CreatedAt), GETUTCDATE()) > 90 THEN 'Inactive'
+        WHEN DATEDIFF(DAY, MAX(a.CreatedAt), GETUTCDATE()) BETWEEN 30 AND 90 THEN 'At Risk'
+        ELSE 'Active'
+    END as ActivityStatus
+FROM Users u
+INNER JOIN Appointments a ON u.UserId = a.ClientId
+WHERE a.StatusId IN (1, 2, 3, 4) -- Excluir canceladas
+GROUP BY u.UserId, u.FirstName, u.LastName, u.Email;
+GO
+
+-- Vista de horarios pico por negocio
+CREATE VIEW vw_PeakHours AS
+SELECT 
+    b.BusinessId,
+    b.BusinessName,
+    DATEPART(HOUR, CAST(a.StartTime as DATETIME)) as HourOfDay,
+    DATEPART(WEEKDAY, a.AppointmentDate) as DayOfWeek,
+    COUNT(a.AppointmentId) as AppointmentCount,
+    AVG(CAST(a.DurationMinutes as FLOAT)) as AvgDuration
+FROM Businesses b
+INNER JOIN Appointments a ON b.BusinessId = a.BusinessId
+WHERE a.StatusId NOT IN (5, 6, 7)
+GROUP BY 
+    b.BusinessId, b.BusinessName, 
+    DATEPART(HOUR, CAST(a.StartTime as DATETIME)), 
+    DATEPART(WEEKDAY, a.AppointmentDate);
+GO
+
+-- Vista de efectividad de cupones
+CREATE VIEW vw_CouponEffectiveness AS
+SELECT 
+    c.CouponId,
+    c.CouponCode,
+    c.Description,
+    c.BusinessId,
+    b.BusinessName,
+    c.DiscountType,
+    c.DiscountValue,
+    c.MaxUses,
+    c.UsedCount,
+    COUNT(cu.UsageId) as ActualUsageCount,
+    c.ValidFrom,
+    c.ValidUntil,
+    CASE 
+        WHEN c.MaxUses IS NOT NULL 
+        THEN CAST(c.UsedCount as FLOAT) / c.MaxUses * 100 
+        ELSE NULL 
+    END as UsagePercentage,
+    c.IsActive
+FROM Coupons c
+INNER JOIN Businesses b ON c.BusinessId = b.BusinessId
+LEFT JOIN CouponUsage cu ON c.CouponId = cu.CouponId
+GROUP BY 
+    c.CouponId, c.CouponCode, c.Description, c.BusinessId, b.BusinessName,
+    c.DiscountType, c.DiscountValue, c.MaxUses, c.UsedCount, 
+    c.ValidFrom, c.ValidUntil, c.IsActive;
+GO
+
+-- =============================================
+-- STORED PROCEDURES
+-- =============================================
+
+-- SP: Obtener disponibilidad de un empleado en una fecha
+CREATE PROCEDURE sp_GetEmployeeAvailability
+    @EmployeeId UNIQUEIDENTIFIER,
+    @Date DATE,
+    @ServiceId UNIQUEIDENTIFIER
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @ServiceDuration INT;
+    DECLARE @DayOfWeek INT = DATEPART(WEEKDAY, @Date);
+
+    -- Obtener duración del servicio
+    SELECT @ServiceDuration = DurationMinutes 
+    FROM Services 
+    WHERE ServiceId = @ServiceId;
+
+    -- Verificar si el empleado trabaja ese día
+    SELECT 
+        ewh.StartTime,
+        ewh.EndTime,
+        @ServiceDuration as ServiceDuration
+    FROM EmployeeWorkingHours ewh
+    WHERE ewh.EmployeeId = @EmployeeId 
+        AND ewh.DayOfWeek = @DayOfWeek
+        AND ewh.IsAvailable = 1
+        AND NOT EXISTS (
+            -- Verificar si el empleado tiene tiempo libre ese día
+            SELECT 1 
+            FROM EmployeeTimeOff eto
+            WHERE eto.EmployeeId = @EmployeeId
+                AND @Date BETWEEN CAST(eto.StartDate as DATE) AND CAST(eto.EndDate as DATE)
+        );
+
+    -- Obtener citas existentes del empleado ese día
+    SELECT 
+        StartTime,
+        EndTime,
+        DurationMinutes,
+        s.ServiceName
+    FROM Appointments a
+    LEFT JOIN Services s ON a.ServiceId = s.ServiceId
+    WHERE a.EmployeeId = @EmployeeId 
+        AND a.AppointmentDate = @Date
+        AND a.StatusId NOT IN (5, 6, 7); -- Excluir canceladas y no-show
+END;
+GO
+
+-- SP: Crear una cita con validaciones
+CREATE PROCEDURE sp_CreateAppointment
+    @BusinessId UNIQUEIDENTIFIER,
+    @LocationId UNIQUEIDENTIFIER,
+    @ClientId UNIQUEIDENTIFIER,
+    @EmployeeId UNIQUEIDENTIFIER = NULL,
+    @ServiceId UNIQUEIDENTIFIER = NULL,
+    @PackageId UNIQUEIDENTIFIER = NULL,
+    @AppointmentDate DATE,
+    @StartTime TIME,
+    @Notes NVARCHAR(1000) = NULL,
+    @ClientAddress NVARCHAR(500) = NULL,
+    @NewAppointmentId UNIQUEIDENTIFIER OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        DECLARE @DurationMinutes INT;
+        DECLARE @TotalPrice DECIMAL(10,2);
+        DECLARE @EndTime TIME;
+        DECLARE @RequiresConfirmation BIT;
+        DECLARE @IsMobileService BIT = 0;
+
+        -- Validar que el servicio o paquete exista
+        IF @ServiceId IS NOT NULL
+        BEGIN
+            SELECT 
+                @DurationMinutes = DurationMinutes,
+                @TotalPrice = Price,
+                @IsMobileService = IsMobileService
+            FROM Services 
+            WHERE ServiceId = @ServiceId AND BusinessId = @BusinessId;
+
+            IF @DurationMinutes IS NULL
+            BEGIN
+                RAISERROR('Servicio no encontrado', 16, 1);
+                RETURN;
+            END
+        END
+        ELSE IF @PackageId IS NOT NULL
+        BEGIN
+            SELECT 
+                @TotalPrice = TotalPrice
+            FROM ServicePackages 
+            WHERE PackageId = @PackageId AND BusinessId = @BusinessId;
+
+            -- Calcular duración total del paquete
+            SELECT @DurationMinutes = SUM(s.DurationMinutes)
+            FROM PackageServices ps
+            INNER JOIN Services s ON ps.ServiceId = s.ServiceId
+            WHERE ps.PackageId = @PackageId;
+        END
+        ELSE
+        BEGIN
+            RAISERROR('Debe especificar un servicio o paquete', 16, 1);
+            RETURN;
+        END
+
+        -- Validar dirección para servicios móviles
+        IF @IsMobileService = 1 AND @ClientAddress IS NULL
+        BEGIN
+            RAISERROR('Debe proporcionar dirección para servicios a domicilio', 16, 1);
+            RETURN;
+        END
+
+        -- Calcular hora de fin
+        SET @EndTime = DATEADD(MINUTE, @DurationMinutes, CAST(@StartTime as DATETIME));
+
+        -- Obtener configuración de confirmación
+        SELECT @RequiresConfirmation = CAST(SettingValue as BIT)
+        FROM BusinessSettings
+        WHERE BusinessId = @BusinessId 
+            AND SettingKey = 'require_appointment_confirmation';
+
+        SET @RequiresConfirmation = ISNULL(@RequiresConfirmation, 0);
+
+        -- Validar que el empleado esté disponible (si se especificó)
+        IF @EmployeeId IS NOT NULL
+        BEGIN
+            IF EXISTS (
+                SELECT 1 
+                FROM Appointments 
+                WHERE EmployeeId = @EmployeeId 
+                    AND AppointmentDate = @AppointmentDate
+                    AND StatusId NOT IN (5, 6, 7)
+                    AND (
+                        (@StartTime >= StartTime AND @StartTime < EndTime)
+                        OR (@EndTime > StartTime AND @EndTime <= EndTime)
+                        OR (@StartTime <= StartTime AND @EndTime >= EndTime)
+                    )
+            )
+            BEGIN
+                RAISERROR('El empleado no está disponible en ese horario', 16, 1);
+                RETURN;
+            END
+        END
+
+        -- Crear la cita
+        SET @NewAppointmentId = NEWID();
+
+        INSERT INTO Appointments (
+            AppointmentId, BusinessId, LocationId, ClientId, EmployeeId, 
+            ServiceId, PackageId, StatusId, AppointmentDate, StartTime, 
+            EndTime, DurationMinutes, Notes, ClientAddress, TotalPrice, 
+            RequiresConfirmation
+        )
+        VALUES (
+            @NewAppointmentId, @BusinessId, @LocationId, @ClientId, @EmployeeId,
+            @ServiceId, @PackageId, 1, @AppointmentDate, @StartTime,
+            @EndTime, @DurationMinutes, @Notes, @ClientAddress, @TotalPrice,
+            @RequiresConfirmation
+        );
+
+        COMMIT TRANSACTION;
+
+        -- Devolver la cita creada
+        SELECT * FROM Appointments WHERE AppointmentId = @NewAppointmentId;
+
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        
+        DECLARE @ErrorMessage NVARCHAR(4000) = ERROR_MESSAGE();
+        DECLARE @ErrorSeverity INT = ERROR_SEVERITY();
+        DECLARE @ErrorState INT = ERROR_STATE();
+        
+        RAISERROR(@ErrorMessage, @ErrorSeverity, @ErrorState);
+    END CATCH
+END;
+GO
+
+-- SP: Cancelar cita con validación de ventana de cancelación
+CREATE PROCEDURE sp_CancelAppointment
+    @AppointmentId UNIQUEIDENTIFIER,
+    @CancelledBy UNIQUEIDENTIFIER, -- UserId que cancela
+    @CancellationReason NVARCHAR(500) = NULL,
+    @Success BIT OUTPUT,
+    @Message NVARCHAR(500) OUTPUT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        DECLARE @BusinessId UNIQUEIDENTIFIER;
+        DECLARE @AppointmentDate DATE;
+        DECLARE @StartTime TIME;
+        DECLARE @CancellationWindowHours INT;
+        DECLARE @AppointmentDateTime DATETIME2;
+        DECLARE @HoursUntilAppointment FLOAT;
+
+        -- Obtener información de la cita
+        SELECT 
+            @BusinessId = BusinessId,
+            @AppointmentDate = AppointmentDate,
+            @StartTime = StartTime,
+            @AppointmentDateTime = CAST(CAST(AppointmentDate as DATETIME) + CAST(StartTime as DATETIME) as DATETIME2)
+        FROM Appointments
+        WHERE AppointmentId = @AppointmentId;
+
+        -- Obtener ventana de cancelación del negocio
+        SELECT @CancellationWindowHours = CAST(SettingValue as INT)
+        FROM BusinessSettings
+        WHERE BusinessId = @BusinessId 
+            AND SettingKey = 'cancellation_window_hours';
+
+        SET @CancellationWindowHours = ISNULL(@CancellationWindowHours, 24);
+
+        -- Calcular horas hasta la cita
+        SET @HoursUntilAppointment = DATEDIFF(HOUR, GETUTCDATE(), @AppointmentDateTime);
+
+        -- Validar ventana de cancelación
+        IF @HoursUntilAppointment < @CancellationWindowHours
+        BEGIN
+            SET @Success = 0;
+            SET @Message = 'No se puede cancelar. Debe cancelar con al menos ' + 
+                          CAST(@CancellationWindowHours as NVARCHAR) + ' horas de anticipación.';
+            ROLLBACK TRANSACTION;
+            RETURN;
+        END
+
+        -- Cancelar la cita
+        UPDATE Appointments
+        SET 
+            StatusId = 5, -- cancelled_by_client
+            CancelledAt = GETUTCDATE(),
+            CancellationReason = @CancellationReason,
+            UpdatedAt = GETUTCDATE()
+        WHERE AppointmentId = @AppointmentId;
+
+        SET @Success = 1;
+        SET @Message = 'Cita cancelada exitosamente';
+
+        COMMIT TRANSACTION;
+
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        
+        SET @Success = 0;
+        SET @Message = ERROR_MESSAGE();
+    END CATCH
+END;
+GO
+
+-- SP: Generar factura mensual para un negocio
+CREATE PROCEDURE sp_GenerateMonthlyInvoice
+    @BusinessId UNIQUEIDENTIFIER,
+    @BillingMonth DATE -- Primer día del mes a facturar
+AS
+BEGIN
+    SET NOCOUNT ON;
+    BEGIN TRY
+        BEGIN TRANSACTION;
+
+        DECLARE @BillingPeriodStart DATE = @BillingMonth;
+        DECLARE @BillingPeriodEnd DATE = EOMONTH(@BillingMonth);
+        DECLARE @IndustryId INT;
+        DECLARE @BasePriceMonthly DECIMAL(10,2);
+        DECLARE @PricePerAppointment DECIMAL(10,2);
+        DECLARE @TotalAppointments INT;
+        DECLARE @FreeAppointments INT = 50; -- Primeras 50 incluidas en base
+        DECLARE @AppointmentCharges DECIMAL(10,2);
+        DECLARE @Subtotal DECIMAL(10,2);
+        DECLARE @TaxPercentage DECIMAL(5,2) = 13.00; -- IVA CR
+        DECLARE @TaxAmount DECIMAL(10,2);
+        DECLARE @Total DECIMAL(10,2);
+        DECLARE @InvoiceNumber NVARCHAR(50);
+        DECLARE @NewInvoiceId UNIQUEIDENTIFIER = NEWID();
+
+        -- Obtener información del negocio
+        SELECT 
+            @IndustryId = b.IndustryId,
+            @BasePriceMonthly = i.BasePriceMonthly,
+            @PricePerAppointment = i.PricePerAppointment
+        FROM Businesses b
+        INNER JOIN Industries i ON b.IndustryId = i.IndustryId
+        WHERE b.BusinessId = @BusinessId;
+
+        -- Contar citas completadas en el período
+        SELECT @TotalAppointments = COUNT(*)
+        FROM Appointments
+        WHERE BusinessId = @BusinessId
+            AND AppointmentDate BETWEEN @BillingPeriodStart AND @BillingPeriodEnd
+            AND StatusId = 4; -- completed
+
+        -- Calcular cargos por citas adicionales
+        IF @TotalAppointments > @FreeAppointments
+            SET @AppointmentCharges = (@TotalAppointments - @FreeAppointments) * @PricePerAppointment;
+        ELSE
+            SET @AppointmentCharges = 0;
+
+        -- Calcular totales
+        SET @Subtotal = @BasePriceMonthly + @AppointmentCharges;
+        SET @TaxAmount = @Subtotal * (@TaxPercentage / 100);
+        SET @Total = @Subtotal + @TaxAmount;
+
+        -- Generar número de factura
+        SET @InvoiceNumber = 'INV-' + 
+                           FORMAT(@BillingMonth, 'yyyyMM') + '-' + 
+                           RIGHT('00000' + CAST(ABS(CHECKSUM(@BusinessId)) % 100000 as NVARCHAR), 5);
+
+        -- Crear factura
+        INSERT INTO Invoices (
+            InvoiceId, BusinessId, InvoiceNumber, BillingPeriodStart, BillingPeriodEnd,
+            TotalAppointments, BasePrice, AppointmentCharges, Subtotal,
+            TaxPercentage, TaxAmount, Total, DueDate
+        )
+        VALUES (
+            @NewInvoiceId, @BusinessId, @InvoiceNumber, @BillingPeriodStart, @BillingPeriodEnd,
+            @TotalAppointments, @BasePriceMonthly, @AppointmentCharges, @Subtotal,
+            @TaxPercentage, @TaxAmount, @Total, 
+            DATEADD(DAY, 15, @BillingPeriodEnd) -- 15 días para pagar
+        );
+
+        COMMIT TRANSACTION;
+
+        -- Devolver la factura generada
+        SELECT * FROM Invoices WHERE InvoiceId = @NewInvoiceId;
+
+    END TRY
+    BEGIN CATCH
+        IF @@TRANCOUNT > 0
+            ROLLBACK TRANSACTION;
+        
+        THROW;
+    END CATCH
+END;
+GO
+
+-- SP: Obtener slots disponibles para un servicio
+CREATE PROCEDURE sp_GetAvailableSlots
+    @BusinessId UNIQUEIDENTIFIER,
+    @LocationId UNIQUEIDENTIFIER,
+    @ServiceId UNIQUEIDENTIFIER,
+    @Date DATE,
+    @EmployeeId UNIQUEIDENTIFIER = NULL -- NULL = cualquier empleado
+AS
+BEGIN
+    SET NOCOUNT ON;
+
+    DECLARE @DayOfWeek INT = DATEPART(WEEKDAY, @Date);
+    DECLARE @ServiceDuration INT;
+    DECLARE @BufferTime INT;
+
+    -- Obtener duración del servicio
+    SELECT @ServiceDuration = DurationMinutes FROM Services WHERE ServiceId = @ServiceId;
+
+    -- Obtener tiempo de buffer entre citas
+    SELECT @BufferTime = CAST(SettingValue as INT)
+    FROM BusinessSettings
+    WHERE BusinessId = @BusinessId AND SettingKey = 'buffer_time_minutes';
+
+    SET @BufferTime = ISNULL(@BufferTime, 0);
+
+    -- Si se especificó empleado, obtener solo sus slots
+    IF @EmployeeId IS NOT NULL
+    BEGIN
+        SELECT 
+            @EmployeeId as EmployeeId,
+            be.DisplayName as EmployeeName,
+            ewh.StartTime as ShiftStart,
+            ewh.EndTime as ShiftEnd,
+            @ServiceDuration as ServiceDuration,
+            @BufferTime as BufferTime
+        FROM EmployeeWorkingHours ewh
+        INNER JOIN BusinessEmployees be ON ewh.EmployeeId = be.EmployeeId
+        WHERE ewh.EmployeeId = @EmployeeId
+            AND ewh.DayOfWeek = @DayOfWeek
+            AND ewh.IsAvailable = 1
+            AND be.IsActive = 1
+            AND NOT EXISTS (
+                SELECT 1 FROM EmployeeTimeOff eto
+                WHERE eto.EmployeeId = @EmployeeId
+                    AND @Date BETWEEN CAST(eto.StartDate as DATE) AND CAST(eto.EndDate as DATE)
+            );
+    END
+    ELSE
+    BEGIN
+        -- Obtener todos los empleados que pueden hacer ese servicio
+        SELECT 
+            be.EmployeeId,
+            be.DisplayName as EmployeeName,
+            ewh.StartTime as ShiftStart,
+            ewh.EndTime as ShiftEnd,
+            @ServiceDuration as ServiceDuration,
+            @BufferTime as BufferTime
+        FROM BusinessEmployees be
+        INNER JOIN EmployeeServices es ON be.EmployeeId = es.EmployeeId
+        INNER JOIN EmployeeWorkingHours ewh ON be.EmployeeId = ewh.EmployeeId
+        WHERE es.ServiceId = @ServiceId
+            AND be.BusinessId = @BusinessId
+            AND be.IsActive = 1
+            AND ewh.DayOfWeek = @DayOfWeek
+            AND ewh.IsAvailable = 1
+            AND NOT EXISTS (
+                SELECT 1 FROM EmployeeTimeOff eto
+                WHERE eto.EmployeeId = be.EmployeeId
+                    AND @Date BETWEEN CAST(eto.StartDate as DATE) AND CAST(eto.EndDate as DATE)
+            );
+    END
+
+    -- Obtener citas existentes para ese día
+    SELECT 
+        EmployeeId,
+        StartTime,
+        EndTime,
+        DurationMinutes
+    FROM Appointments
+    WHERE LocationId = @LocationId
+        AND AppointmentDate = @Date
+        AND StatusId NOT IN (5, 6, 7)
+        AND (@EmployeeId IS NULL OR EmployeeId = @EmployeeId);
+END;
+GO
+
+-- =============================================
+-- FUNCIONES ÚTILES
+-- =============================================
+
+-- Función para calcular rating promedio de un negocio
+CREATE FUNCTION fn_GetBusinessAverageRating(@BusinessId UNIQUEIDENTIFIER)
+RETURNS DECIMAL(3,2)
+AS
+BEGIN
+    DECLARE @AvgRating DECIMAL(3,2);
+    
+    SELECT @AvgRating = AVG(CAST(Rating as DECIMAL(3,2)))
+    FROM Reviews
+    WHERE BusinessId = @BusinessId AND IsPublic = 1;
+    
+    RETURN ISNULL(@AvgRating, 0);
+END;
+GO
+
+-- Función para verificar si un negocio está activo y pagado
+CREATE FUNCTION fn_IsBusinessActive(@BusinessId UNIQUEIDENTIFIER)
+RETURNS BIT
+AS
+BEGIN
+    DECLARE @IsActive BIT = 0;
+    
+    SELECT @IsActive = CASE 
+        WHEN SubscriptionStatus IN ('trial', 'active') 
+            AND (TrialEndsAt > GETUTCDATE() OR SubscriptionEndDate > GETUTCDATE())
+        THEN 1
+        ELSE 0
+    END
+    FROM Businesses
+    WHERE BusinessId = @BusinessId;
+    
+    RETURN ISNULL(@IsActive, 0);
+END;
+GO
+
+-- Función para obtener el próximo slot disponible
+CREATE FUNCTION fn_GetNextAvailableSlot(
+    @EmployeeId UNIQUEIDENTIFIER,
+    @Date DATE,
+    @DurationMinutes INT
+)
+RETURNS TIME
+AS
+BEGIN
+    DECLARE @NextSlot TIME;
+    
+    -- Esta es una función simplificada
+    -- En producción, necesitarías lógica más compleja
+    SELECT TOP 1 @NextSlot = DATEADD(MINUTE, DurationMinutes + 15, EndTime)
+    FROM Appointments
+    WHERE EmployeeId = @EmployeeId
+        AND AppointmentDate = @Date
+        AND StatusId NOT IN (5, 6, 7)
+    ORDER BY EndTime DESC;
+    
+    RETURN @NextSlot;
+END;
+GO
+
+-- =============================================
+-- TRIGGERS PARA AUDITORÍA
+-- =============================================
+
+-- Trigger para auditar cambios en citas
+CREATE TRIGGER trg_Appointments_Audit
+ON Appointments
+AFTER UPDATE, DELETE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    DECLARE @Action NVARCHAR(10);
+    
+    IF EXISTS (SELECT * FROM deleted) AND EXISTS (SELECT * FROM inserted)
+        SET @Action = 'UPDATE';
+    ELSE IF EXISTS (SELECT * FROM deleted)
+        SET @Action = 'DELETE';
+    
+    INSERT INTO AuditLogs (
+        Action, 
+        EntityType, 
+        EntityId, 
+        OldValues, 
+        NewValues
+    )
+    SELECT 
+        @Action,
+        'Appointment',
+        ISNULL(i.AppointmentId, d.AppointmentId),
+        (SELECT d.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER),
+        (SELECT i.* FOR JSON PATH, WITHOUT_ARRAY_WRAPPER)
+    FROM inserted i
+    FULL OUTER JOIN deleted d ON i.AppointmentId = d.AppointmentId;
+END;
+GO
+
+-- Trigger para actualizar contador de uso de cupones
+CREATE TRIGGER trg_CouponUsage_UpdateCount
+ON CouponUsage
+AFTER INSERT
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    UPDATE c
+    SET UsedCount = UsedCount + 1
+    FROM Coupons c
+    INNER JOIN inserted i ON c.CouponId = i.CouponId;
+END;
+GO
+
+-- Trigger para actualizar timestamps automáticamente
+CREATE TRIGGER trg_UpdateTimestamp_Users
+ON Users
+AFTER UPDATE
+AS
+BEGIN
+    SET NOCOUNT ON;
+    
+    UPDATE Users
+    SET UpdatedAt = GETUTCDATE()
+    FROM Users u
+    INNER JOIN inserted i ON u.UserId = i.UserId;
+END;
+GO
+
+-- =============================================
+-- JOBS PROGRAMADOS (SQL Server Agent)
+-- =============================================
+
+-- Job para enviar recordatorios 24h antes
+-- Este es un script de ejemplo para configurar el job
+/*
+USE msdb;
+GO
+
+EXEC dbo.sp_add_job
+    @job_name = N'Send24HourReminders';
+
+EXEC dbo.sp_add_jobstep
+    @job_name = N'Send24HourReminders',
+    @step_name = N'SendReminders',
+    @subsystem = N'TSQL',
+    @command = N'
+        INSERT INTO Notifications (UserId, TemplateId, Title, Message, NotificationType, RelatedEntityType, RelatedEntityId)
+        SELECT 
+            a.ClientId,
+            (SELECT TemplateId FROM NotificationTemplates WHERE TemplateName = ''appointment_reminder_24h''),
+            ''Recordatorio: Tienes una cita mañana'',
+            ''Recuerda tu cita mañana a las '' + CONVERT(NVARCHAR, a.StartTime, 108) + '' en '' + b.BusinessName,
+            ''both'',
+            ''appointment'',
+            a.AppointmentId
+        FROM Appointments a
+        INNER JOIN Businesses b ON a.BusinessId = b.BusinessId
+        INNER JOIN BusinessSettings bs ON b.BusinessId = bs.BusinessId 
+            AND bs.SettingKey = ''send_reminder_24h'' 
+            AND CAST(bs.SettingValue as BIT) = 1
+        WHERE a.AppointmentDate = CAST(DATEADD(DAY, 1, GETUTCDATE()) as DATE)
+            AND a.StatusId IN (1, 2)
+            AND NOT EXISTS (
+                SELECT 1 FROM Notifications n
+                WHERE n.RelatedEntityId = a.AppointmentId
+                    AND n.TemplateId = (SELECT TemplateId FROM NotificationTemplates WHERE TemplateName = ''appointment_reminder_24h'')
+            );
+    ',
+    @database_name = N'BookingSystem';
+
+EXEC dbo.sp_add_schedule
+    @schedule_name = N'Daily8AM',
+    @freq_type = 4, -- Daily
+    @freq_interval = 1,
+    @active_start_time = 080000; -- 8:00 AM
+
+EXEC dbo.sp_attach_schedule
+    @job_name = N'Send24HourReminders',
+    @schedule_name = N'Daily8AM';
+
+EXEC dbo.sp_add_jobserver
+    @job_name = N'Send24HourReminders';
+GO
+*/
+
+-- Job para enviar recordatorios 2h antes
+/*
+USE msdb;
+GO
+
+EXEC dbo.sp_add_job
+    @job_name = N'Send2HourReminders';
+
+EXEC dbo.sp_add_jobstep
+    @job_name = N'Send2HourReminders',
+    @step_name = N'SendReminders',
+    @subsystem = N'TSQL',
+    @command = N'
+        INSERT INTO Notifications (UserId, TemplateId, Title, Message, NotificationType, RelatedEntityType, RelatedEntityId)
+        SELECT 
+            a.ClientId,
+            (SELECT TemplateId FROM NotificationTemplates WHERE TemplateName = ''appointment_reminder_2h''),
+            ''Tu cita es en 2 horas'',
+            ''Tu cita en '' + b.BusinessName + '' es a las '' + CONVERT(NVARCHAR, a.StartTime, 108),
+            ''both'',
+            ''appointment'',
+            a.AppointmentId
+        FROM Appointments a
+        INNER JOIN Businesses b ON a.BusinessId = b.BusinessId
+        INNER JOIN BusinessSettings bs ON b.BusinessId = bs.BusinessId 
+            AND bs.SettingKey = ''send_reminder_2h'' 
+            AND CAST(bs.SettingValue as BIT) = 1
+        WHERE a.AppointmentDate = CAST(GETUTCDATE() as DATE)
+            AND DATEADD(HOUR, 2, GETUTCDATE()) >= CAST(CAST(a.AppointmentDate as DATETIME) + CAST(a.StartTime as DATETIME) as DATETIME2)
+            AND GETUTCDATE() < CAST(CAST(a.AppointmentDate as DATETIME) + CAST(a.StartTime as DATETIME) as DATETIME2)
+            AND a.StatusId IN (1, 2)
+            AND NOT EXISTS (
+                SELECT 1 FROM Notifications n
+                WHERE n.RelatedEntityId = a.AppointmentId
+                    AND n.TemplateId = (SELECT TemplateId FROM NotificationTemplates WHERE TemplateName = ''appointment_reminder_2h'')
+            );
+    ',
+    @database_name = N'BookingSystem';
+
+EXEC dbo.sp_add_schedule
+    @schedule_name = N'EveryHour',
+    @freq_type = 4,
+    @freq_interval = 1,
+    @freq_subday_type = 8, -- Hours
+    @freq_subday_interval = 1;
+
+EXEC dbo.sp_attach_schedule
+    @job_name = N'Send2HourReminders',
+    @schedule_name = N'EveryHour';
+
+EXEC dbo.sp_add_jobserver
+    @job_name = N'Send2HourReminders';
+GO
+*/
+
+-- Job para generar facturas mensuales
+/*
+USE msdb;
+GO
+
+EXEC dbo.sp_add_job
+    @job_name = N'GenerateMonthlyInvoices';
+
+EXEC dbo.sp_add_jobstep
+    @job_name = N'GenerateMonthlyInvoices',
+    @step_name = N'GenerateInvoices',
+    @subsystem = N'TSQL',
+    @command = N'
+        DECLARE @BusinessId UNIQUEIDENTIFIER;
+        DECLARE @LastMonth DATE = DATEADD(MONTH, -1, DATEFROMPARTS(YEAR(GETUTCDATE()), MONTH(GETUTCDATE()), 1));
+        
+        DECLARE business_cursor CURSOR FOR
+        SELECT BusinessId
+        FROM Businesses
+        WHERE SubscriptionStatus IN (''trial'', ''active'')
+            AND DATEADD(MONTH, 1, CreatedAt) < GETUTCDATE() -- No facturar en primer mes (trial)
+            AND NOT EXISTS (
+                SELECT 1 FROM Invoices i
+                WHERE i.BusinessId = Businesses.BusinessId
+                    AND i.BillingPeriodStart = @LastMonth
+            );
+        
+        OPEN business_cursor;
+        FETCH NEXT FROM business_cursor INTO @BusinessId;
+        
+        WHILE @@FETCH_STATUS = 0
+        BEGIN
+            EXEC sp_GenerateMonthlyInvoice @BusinessId, @LastMonth;
+            FETCH NEXT FROM business_cursor INTO @BusinessId;
+        END
+        
+        CLOSE business_cursor;
+        DEALLOCATE business_cursor;
+    ',
+    @database_name = N'BookingSystem';
+
+EXEC dbo.sp_add_schedule
+    @schedule_name = N'FirstDayOfMonth',
+    @freq_type = 16, -- Monthly
+    @freq_interval = 1,
+    @active_start_time = 020000; -- 2:00 AM
+
+EXEC dbo.sp_attach_schedule
+    @job_name = N'GenerateMonthlyInvoices',
+    @schedule_name = N'FirstDayOfMonth';
+
+EXEC dbo.sp_add_jobserver
+    @job_name = N'GenerateMonthlyInvoices';
+GO
+*/
+
+-- Job para marcar citas como "no-show"
+/*
+USE msdb;
+GO
+
+EXEC dbo.sp_add_job
+    @job_name = N'MarkNoShows';
+
+EXEC dbo.sp_add_jobstep
+    @job_name = N'MarkNoShows',
+    @step_name = N'UpdateNoShows',
+    @subsystem = N'TSQL',
+    @command = N'
+        UPDATE Appointments
+        SET StatusId = 7, -- no_show
+            UpdatedAt = GETUTCDATE()
+        WHERE StatusId IN (1, 2) -- pending or confirmed
+            AND CAST(CAST(AppointmentDate as DATETIME) + CAST(EndTime as DATETIME) as DATETIME2) < DATEADD(HOUR, -2, GETUTCDATE())
+            AND CheckedInAt IS NULL;
+    ',
+    @database_name = N'BookingSystem';
+
+EXEC dbo.sp_add_schedule
+    @schedule_name = N'Every2Hours',
+    @freq_type = 4,
+    @freq_interval = 1,
+    @freq_subday_type = 8,
+    @freq_subday_interval = 2;
+
+EXEC dbo.sp_attach_schedule
+    @job_name = N'MarkNoShows',
+    @schedule_name = N'Every2Hours';
+
+EXEC dbo.sp_add_jobserver
+    @job_name = N'MarkNoShows';
+GO
+*/
+
+-- Job para enviar encuestas de satisfacción post-cita
+/*
+USE msdb;
+GO
+
+EXEC dbo.sp_add_job
+    @job_name = N'SendPostAppointmentSurveys';
+
+EXEC dbo.sp_add_jobstep
+    @job_name = N'SendPostAppointmentSurveys',
+    @step_name = N'SendSurveys',
+    @subsystem = N'TSQL',
+    @command = N'
+        INSERT INTO Notifications (UserId, TemplateId, Title, Message, NotificationType, RelatedEntityType, RelatedEntityId)
+        SELECT 
+            a.ClientId,
+            (SELECT TemplateId FROM NotificationTemplates WHERE TemplateName = ''review_request''),
+            ''¿Cómo fue tu experiencia?'',
+            ''Nos encantaría conocer tu opinión sobre tu visita a '' + b.BusinessName,
+            ''both'',
+            ''appointment'',
+            a.AppointmentId
+        FROM Appointments a
+        INNER JOIN Businesses b ON a.BusinessId = b.BusinessId
+        WHERE a.StatusId = 4 -- completed
+            AND a.CompletedAt >= DATEADD(HOUR, -2, GETUTCDATE())
+            AND a.CompletedAt < DATEADD(HOUR, -1, GETUTCDATE())
+            AND NOT EXISTS (
+                SELECT 1 FROM Reviews r WHERE r.AppointmentId = a.AppointmentId
+            )
+            AND NOT EXISTS (
+                SELECT 1 FROM Notifications n
+                WHERE n.RelatedEntityId = a.AppointmentId
+                    AND n.TemplateId = (SELECT TemplateId FROM NotificationTemplates WHERE TemplateName = ''review_request'')
+            );
+    ',
+    @database_name = N'BookingSystem';
+
+EXEC dbo.sp_add_schedule
+    @schedule_name = N'EveryHour_Survey',
+    @freq_type = 4,
+    @freq_interval = 1,
+    @freq_subday_type = 8,
+    @freq_subday_interval = 1;
+
+EXEC dbo.sp_attach_schedule
+    @job_name = N'SendPostAppointmentSurveys',
+    @schedule_name = N'EveryHour_Survey';
+
+EXEC dbo.sp_add_jobserver
+    @job_name = N'SendPostAppointmentSurveys';
+GO
+*/
+
+-- Job para identificar clientes inactivos (Re-engagement)
+/*
+USE msdb;
+GO
+
+EXEC dbo.sp_add_job
+    @job_name = N'IdentifyInactiveClients';
+
+EXEC dbo.sp_add_jobstep
+    @job_name = N'IdentifyInactiveClients',
+    @step_name = N'CreateReengagementList',
+    @subsystem = N'TSQL',
+    @command = N'
+        -- Identificar clientes que no han agendado en 90 días
+        -- y crear una campaña de re-engagement
+        
+        INSERT INTO EmailCampaigns (
+            CampaignId,
+            BusinessId,
+            CampaignName,
+            Subject,
+            EmailBody,
+            CampaignType,
+            SegmentCriteria,
+            Status,
+            ScheduledFor
+        )
+        SELECT 
+            NEWID(),
+            b.BusinessId,
+            ''Re-engagement '' + FORMAT(GETUTCDATE(), ''yyyy-MM''),
+            ''Te extrañamos! Agenda tu próxima cita'',
+            ''Hola {{client_name}}, notamos que no nos has visitado en un tiempo. Agenda tu próxima cita y obtén 15% de descuento.'',
+            ''reengagement'',
+            ''{"days_since_last_visit": 90}'',
+            ''scheduled'',
+            DATEADD(DAY, 1, GETUTCDATE())
+        FROM Businesses b
+        WHERE b.SubscriptionStatus = ''active''
+            AND NOT EXISTS (
+                SELECT 1 FROM EmailCampaigns ec
+                WHERE ec.BusinessId = b.BusinessId
+                    AND ec.CampaignType = ''reengagement''
+                    AND ec.CreatedAt >= DATEADD(MONTH, -1, GETUTCDATE())
+            )
+            AND EXISTS (
+                SELECT 1
+                FROM Appointments a
+                WHERE a.BusinessId = b.BusinessId
+                    AND a.StatusId = 4
+                    AND a.CompletedAt < DATEADD(DAY, -90, GETUTCDATE())
+            );
+    ',
+    @database_name = N'BookingSystem';
+
+EXEC dbo.sp_add_schedule
+    @schedule_name = N'FirstDayOfMonth_Reengagement',
+    @freq_type = 16,
+    @freq_interval = 1,
+    @active_start_time = 090000;
+
+EXEC dbo.sp_attach_schedule
+    @job_name = N'IdentifyInactiveClients',
+    @schedule_name = N'FirstDayOfMonth_Reengagement';
+
+EXEC dbo.sp_add_jobserver
+    @job_name = N'IdentifyInactiveClients';
+GO
+*/
+
+-- Job para limpiar datos antiguos (opcional)
+/*
+USE msdb;
+GO
+
+EXEC dbo.sp_add_job
+    @job_name = N'CleanupOldData';
+
+EXEC dbo.sp_add_jobstep
+    @job_name = N'CleanupOldData',
+    @step_name = N'DeleteOldRecords',
+    @subsystem = N'TSQL',
+    @command = N'
+        -- Eliminar notificaciones leídas de más de 6 meses
+        DELETE FROM Notifications
+        WHERE IsRead = 1
+            AND ReadAt < DATEADD(MONTH, -6, GETUTCDATE());
+        
+        -- Eliminar logs de auditoría de más de 1 año
+        DELETE FROM AuditLogs
+        WHERE CreatedAt < DATEADD(YEAR, -1, GETUTCDATE());
+        
+        -- Archivar citas completadas de más de 2 años (opcional)
+        -- Podrías mover a una tabla de archivo en lugar de eliminar
+    ',
+    @database_name = N'BookingSystem';
+
+EXEC dbo.sp_add_schedule
+    @schedule_name = N'Monthly_Cleanup',
+    @freq_type = 16,
+    @freq_interval = 1,
+    @active_start_time = 030000;
+
+EXEC dbo.sp_attach_schedule
+    @job_name = N'CleanupOldData',
+    @schedule_name = N'Monthly_Cleanup';
+
+EXEC dbo.sp_add_jobserver
+    @job_name = N'CleanupOldData';
+GO
+*/
+
+-- =============================================
+-- ÍNDICES ADICIONALES PARA OPTIMIZACIÓN
+-- =============================================
+
+-- Índices compuestos para queries frecuentes
+CREATE NONCLUSTERED INDEX IX_Appointments_Business_Date_Status
+ON Appointments(BusinessId, AppointmentDate, StatusId)
+INCLUDE (ClientId, EmployeeId, ServiceId, StartTime, EndTime);
+GO
+
+CREATE NONCLUSTERED INDEX IX_Appointments_Employee_Date
+ON Appointments(EmployeeId, AppointmentDate)
+INCLUDE (StartTime, EndTime, StatusId)
+WHERE StatusId NOT IN (5, 6, 7);
+GO
+
+CREATE NONCLUSTERED INDEX IX_Reviews_Business_Rating
+ON Reviews(BusinessId, Rating)
+INCLUDE (EmployeeId, CreatedAt)
+WHERE IsPublic = 1;
+GO
+
+CREATE NONCLUSTERED INDEX IX_Invoices_Business_Status_Period
+ON Invoices(BusinessId, Status, BillingPeriodStart)
+INCLUDE (Total, DueDate);
+GO
+
+-- Índices para búsqueda de texto
+CREATE NONCLUSTERED INDEX IX_Businesses_Name
+ON Businesses(BusinessName)
+INCLUDE (IndustryId, IsActive, SubscriptionStatus);
+GO
+
+CREATE NONCLUSTERED INDEX IX_Services_Name
+ON Services(ServiceName)
+INCLUDE (BusinessId, Price, DurationMinutes, IsActive);
+GO
+
+-- =============================================
+-- QUERIES DE EJEMPLO PARA POWER BI
+-- =============================================
+
+-- Query 1: Revenue mensual por negocio
+/*
+SELECT 
+    b.BusinessId,
+    b.BusinessName,
+    FORMAT(a.AppointmentDate, 'yyyy-MM') as YearMonth,
+    COUNT(DISTINCT a.AppointmentId) as TotalAppointments,
+    SUM(a.TotalPrice) as TotalRevenue,
+    AVG(a.TotalPrice) as AvgRevenuePerAppointment,
+    COUNT(DISTINCT a.ClientId) as UniqueClients
+FROM Businesses b
+INNER JOIN Appointments a ON b.BusinessId = a.BusinessId
+WHERE a.StatusId = 4 -- completed
+    AND a.AppointmentDate >= DATEADD(YEAR, -1, GETUTCDATE())
+GROUP BY b.BusinessId, b.BusinessName, FORMAT(a.AppointmentDate, 'yyyy-MM')
+ORDER BY YearMonth DESC, TotalRevenue DESC;
+*/
+
+-- Query 2: Tasa de ocupación por empleado
+/*
+SELECT 
+    be.EmployeeId,
+    be.DisplayName,
+    b.BusinessName,
+    FORMAT(a.AppointmentDate, 'yyyy-MM') as YearMonth,
+    COUNT(a.AppointmentId) as TotalAppointments,
+    SUM(a.DurationMinutes) as TotalMinutesBooked,
+    SUM(a.DurationMinutes) / 60.0 as TotalHoursBooked,
+    -- Asumiendo 8 horas laborales por día, 22 días al mes
+    (SUM(a.DurationMinutes) / 60.0) / (8 * 22) * 100 as OccupancyRate
+FROM BusinessEmployees be
+INNER JOIN Businesses b ON be.BusinessId = b.BusinessId
+LEFT JOIN Appointments a ON be.EmployeeId = a.EmployeeId 
+    AND a.StatusId IN (3, 4) -- in_progress or completed
+WHERE be.IsActive = 1
+    AND a.AppointmentDate >= DATEADD(MONTH, -3, GETUTCDATE())
+GROUP BY be.EmployeeId, be.DisplayName, b.BusinessName, FORMAT(a.AppointmentDate, 'yyyy-MM')
+ORDER BY YearMonth DESC, OccupancyRate DESC;
+*/
+
+-- Query 3: Análisis de cancelaciones
+/*
+SELECT 
+    b.BusinessId,
+    b.BusinessName,
+    FORMAT(a.AppointmentDate, 'yyyy-MM') as YearMonth,
+    COUNT(CASE WHEN a.StatusId = 5 THEN 1 END) as CancelledByClient,
+    COUNT(CASE WHEN a.StatusId = 6 THEN 1 END) as CancelledByBusiness,
+    COUNT(CASE WHEN a.StatusId = 7 THEN 1 END) as NoShows,
+    COUNT(*) as TotalAppointments,
+    CAST(COUNT(CASE WHEN a.StatusId IN (5,6,7) THEN 1 END) as FLOAT) / COUNT(*) * 100 as CancellationRate
+FROM Businesses b
+INNER JOIN Appointments a ON b.BusinessId = a.BusinessId
+WHERE a.AppointmentDate >= DATEADD(MONTH, -6, GETUTCDATE())
+GROUP BY b.BusinessId, b.BusinessName, FORMAT(a.AppointmentDate, 'yyyy-MM')
+ORDER BY YearMonth DESC, CancellationRate DESC;
+*/
+
+-- Query 4: Retención de clientes
+/*
+SELECT 
+    b.BusinessId,
+    b.BusinessName,
+    COUNT(DISTINCT a.ClientId) as TotalClients,
+    COUNT(DISTINCT CASE WHEN repeat_clients.VisitCount > 1 THEN a.ClientId END) as ReturningClients,
+    CAST(COUNT(DISTINCT CASE WHEN repeat_clients.VisitCount > 1 THEN a.ClientId END) as FLOAT) / 
+        NULLIF(COUNT(DISTINCT a.ClientId), 0) * 100 as RetentionRate
+FROM Businesses b
+INNER JOIN Appointments a ON b.BusinessId = a.BusinessId
+LEFT JOIN (
+    SELECT ClientId, BusinessId, COUNT(*) as VisitCount
+    FROM Appointments
+    WHERE StatusId = 4
+    GROUP BY ClientId, BusinessId
+) repeat_clients ON a.ClientId = repeat_clients.ClientId AND a.BusinessId = repeat_clients.BusinessId
+WHERE a.StatusId = 4
+    AND a.AppointmentDate >= DATEADD(MONTH, -6, GETUTCDATE())
+GROUP BY b.BusinessId, b.BusinessName
+ORDER BY RetentionRate DESC;
+*/
+
+-- Query 5: Servicios más populares
+/*
+SELECT 
+    s.ServiceId,
+    s.ServiceName,
+    b.BusinessName,
+    sc.CategoryName,
+    COUNT(a.AppointmentId) as TimesBooked,
+    SUM(CASE WHEN a.StatusId = 4 THEN s.Price ELSE 0 END) as TotalRevenue,
+    AVG(CAST(r.Rating as FLOAT)) as AvgRating,
+    COUNT(DISTINCT r.ReviewId) as ReviewCount
+FROM Services s
+INNER JOIN Businesses b ON s.BusinessId = b.BusinessId
+LEFT JOIN ServiceCategories sc ON s.CategoryId = sc.CategoryId
+LEFT JOIN Appointments a ON s.ServiceId = a.ServiceId
+LEFT JOIN Reviews r ON a.AppointmentId = r.AppointmentId
+WHERE a.AppointmentDate >= DATEADD(MONTH, -3, GETUTCDATE())
+GROUP BY s.ServiceId, s.ServiceName, b.BusinessName, sc.CategoryName
+ORDER BY TimesBooked DESC;
+*/
+
+-- =============================================
+-- SCRIPT DE DATOS DE PRUEBA (SEED DATA)
+-- =============================================
+
+-- Insertar usuarios de prueba
+/*
+INSERT INTO Users (UserId, Email, PhoneNumber, PasswordHash, FirstName, LastName, AcceptedMarketingConsent)
+VALUES
+    (NEWID(), 'cliente1@test.com', '50688881111', 'hash123', 'Juan', 'Pérez', 1),
+    (NEWID(), 'cliente2@test.com', '50688882222', 'hash123', 'María', 'González', 1),
+    (NEWID(), 'owner.barberia@test.com', '50688883333', 'hash123', 'Carlos', 'Ramírez', 0),
+    (NEWID(), 'owner.dental@test.com', '50688884444', 'hash123', 'Ana', 'López', 0);
+
+-- Insertar negocios de prueba
+DECLARE @BarberOwner UNIQUEIDENTIFIER = (SELECT UserId FROM Users WHERE Email = 'owner.barberia@test.com');
+DECLARE @DentalOwner UNIQUEIDENTIFIER = (SELECT UserId FROM Users WHERE Email = 'owner.dental@test.com');
+
+INSERT INTO Businesses (BusinessId, OwnerId, IndustryId, BusinessName, Description, Phone, Email, SubscriptionStatus, TrialEndsAt)
+VALUES
+    (NEWID(), @BarberOwner, 1, 'Barbería El Clásico', 'La mejor barbería de San José', '50622221111', 'info@barberiaelclasico.com', 'trial', DATEADD(DAY, 30, GETUTCDATE())),
+    (NEWID(), @DentalOwner, 2, 'Clínica Dental Sonrisa', 'Cuidamos tu sonrisa', '50622222222', 'citas@dentalsonrisa.com', 'trial', DATEADD(DAY, 30, GETUTCDATE()));
+*/
+
+-- FIN DEL SCRIPT

@@ -1,0 +1,169 @@
+Preguntas Estratégicas para Refinar el Sistema
+1. Gestión de Usuarios y Roles
+
+¿Necesitas diferentes niveles de administración? (Propietario, gerente, recepcionista, empleado)
+¿Los clientes deben poder crear cuentas o permitir reservas como invitado?
+¿Quieres historial de citas y preferencias guardadas por cliente?
+¿Los empleados deben tener una app/portal separado para ver su agenda?
+
+2. Sistema de Notificaciones y Comunicación
+
+¿Qué canales de notificación? (SMS, Email, WhatsApp, Push notifications)
+¿Confirmación de citas requerida por el cliente?
+¿Notificaciones al negocio cuando hay nueva reserva/cancelación?
+¿Chat en tiempo real entre cliente y negocio?
+¿Encuestas de satisfacción post-servicio automáticas?
+
+3. Políticas de Cancelación y Penalizaciones
+
+¿El sistema debe permitir configurar ventanas de cancelación? (ej: cancelar hasta 24h antes)
+¿Penalizaciones por no-show o cancelaciones tardías?
+¿Cobro automático de depósitos no reembolsables?
+¿Límite de cancelaciones por cliente en un período?
+¿Lista negra automática para clientes problemáticos?
+
+4. Procesamiento de Pagos
+
+¿Qué pasarelas de pago? (Stripe, PayPal, pagos locales de Costa Rica)
+¿Pago completo anticipado, depósito parcial, o pago en sitio?
+¿Propinas digitales para empleados?
+¿Facturación electrónica integrada? (importante para Costa Rica)
+¿Manejo de reembolsos automáticos?
+¿Split de pagos si varios clientes comparten una reserva?
+
+5. Integraciones y Ecosistema
+
+¿Integración con redes sociales para reservar desde Instagram/Facebook?
+¿Sincronización con Google My Business?
+¿Widgets embebibles para sitios web de los negocios?
+¿Integración con sistemas POS existentes?
+¿Conexión con herramientas de contabilidad? (QuickBooks, etc.)
+¿API para desarrolladores externos?
+
+6. Personalización por Negocio
+
+¿Los negocios pueden personalizar colores, logo, dominio propio?
+¿Templates prediseñados por industria?
+¿Campos personalizados en formularios de reserva?
+¿Página de reservas pública personalizable o solo integración en su web?
+
+7. Manejo de Recursos Físicos
+
+Además de empleados, ¿necesitas gestionar recursos físicos?
+
+Mesas/salas en restaurantes
+Sillas de barbería
+Consultorios/quirófanos
+Equipos especializados
+Vehículos (para talleres o servicios móviles)
+
+
+¿Reservas que requieren múltiples recursos simultáneos?
+
+8. Gestión de Servicios Complejos
+
+¿Servicios secuenciales? (ej: consulta → análisis → seguimiento)
+¿Paquetes de servicios con descuentos?
+¿Servicios grupales? (clases de yoga, tours, eventos)
+¿Servicios a domicilio o móviles?
+¿Precios dinámicos según demanda u horario?
+
+9. Experiencia del Cliente
+
+¿Sistema de fidelización con puntos canjeables?
+¿Membresías con beneficios (descuentos, prioridad)?
+¿Refer-a-friend con recompensas?
+¿Wishlist o favoritos de servicios/negocios?
+¿Comparación de precios entre diferentes sucursales?
+¿Reservas recurrentes automáticas? (ej: cita mensual)
+
+10. Reportes y Analytics
+
+¿Dashboard en tiempo real para dueños?
+¿Qué métricas son críticas?
+
+Tasa de ocupación
+Revenue por servicio/empleado/hora
+Cliente nuevo vs recurrente
+Tasa de cancelación/no-show
+Productos más vendidos
+Horarios pico
+
+
+¿Exportación de datos? (Excel, PDF, Google Sheets)
+¿Predicciones de demanda con IA?
+
+11. Funcionalidades de Marketing Detalladas
+
+Campañas automatizadas:
+
+Re-engagement para clientes inactivos
+Cumpleaños/aniversarios
+Promociones estacionales
+
+
+Cupones y descuentos:
+
+Códigos promocionales
+Descuentos por primera vez
+Happy hours automáticos
+
+
+Email marketing:
+
+Templates prediseñados
+Segmentación de clientes
+A/B testing
+
+
+¿Programa de referidos con tracking?
+¿Integración con Google/Facebook Ads?
+
+12. Escalabilidad Técnica
+
+¿Esperado de negocios en el sistema? (10, 100, 10,000)
+¿Multi-tenancy (todos en una BD) o bases separadas por seguridad?
+¿Necesitas soporte 24/7?
+¿Hosting en la nube? (AWS, Google Cloud, Azure)
+¿Requerimientos de uptime? (99.9%, 99.99%)
+¿Backup automático de datos?
+
+13. Compliance y Regulaciones
+
+¿GDPR/protección de datos personales?
+¿Regulaciones específicas por industria? (HIPAA para salud en USA)
+¿Términos y condiciones personalizables por negocio?
+¿Consentimiento para marketing?
+¿Derecho al olvido (borrar datos de cliente)?
+
+14. Soporte y Onboarding
+
+¿Proceso de onboarding guiado para nuevos negocios?
+¿Centro de ayuda/documentación?
+¿Chat de soporte para negocios?
+¿Migración de datos desde otros sistemas?
+¿Training/capacitación para el personal del negocio?
+
+15. Monetización del Sistema
+
+¿Modelo freemium con límites? (ej: 50 citas/mes gratis)
+¿Comisión por transacción además de suscripción?
+¿Planes diferentes por industria?
+¿Cobro por empleado adicional?
+¿Features premium? (reportes avanzados, IA, marketing automation)
+¿Contratos anuales con descuento?
+
+16. Diferenciadores Competitivos
+
+¿Qué hará único a tu sistema vs competencia? (Calendly, Square Appointments, Booksy)
+¿Enfoque en mercado latinoamericano?
+¿Precios más accesibles para pequeños negocios?
+¿Mejor UX/UI?
+¿Funcionalidades específicas que otros no tienen?
+
+17. MVP (Producto Mínimo Viable)
+
+¿Qué industria atacarás primero para validar?
+¿Funcionalidades ESENCIALES para el MVP vs las que pueden esperar?
+¿Cuántos negocios piloto necesitas antes del lanzamiento?
+¿Timeline esperado de desarrollo?

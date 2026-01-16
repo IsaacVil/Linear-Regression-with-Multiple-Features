@@ -79,6 +79,7 @@ def dataRestaurantGeneratorWithAFormula(num):
     ruido = np.random.normal(0, 20_000, size=num)
     ganancia = 0.001 * population + 0.8 * gdp + 100 * sqrtMeters - 2.3 * youngPopulationIndex + ruido #Esta es la formula que buscara aproximar el modelo.
     x = np.column_stack([population, gdp, sqrtMeters, youngPopulationIndex])
+    print(x)
     y = ganancia
     return x, y
 
